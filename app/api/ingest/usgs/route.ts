@@ -68,10 +68,11 @@ export async function GET() {
         source: 'usgs',
         last_success_at: new Date().toISOString(),
         status: 'ok',
+        last_error: null,
+        last_error_at: null,
       },
       { onConflict: 'source' }
     )
-
     return NextResponse.json({
       fetched: relevant.length,
       inserted,

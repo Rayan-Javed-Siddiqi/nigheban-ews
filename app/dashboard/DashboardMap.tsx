@@ -78,7 +78,8 @@ export default function DashboardMap() {
         new maplibregl.Popup()
           .setLngLat(e.lngLat)
           .setHTML(
-            `<strong>${feature.properties?.name_en}</strong><br/>${feature.properties?.province}`
+            `<strong>${feature.properties?.name_en}</strong><br/>${feature.properties?.province}<br/>
+             <a href="/dashboard/district/${feature.properties?.id}" style="color:#01411C;font-weight:600;">Open District Console →</a>`
           )
           .addTo(map)
       })
