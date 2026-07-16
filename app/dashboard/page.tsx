@@ -1,6 +1,7 @@
 import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
 import DashboardMap from './DashboardMap'
+import SourceHealthFooter from './SourceHealthFooter'
 
 export default async function DashboardPage() {
   const supabase = await createClient()
@@ -66,6 +67,9 @@ export default async function DashboardPage() {
           <p className="mt-1 font-mono text-2xl font-semibold text-[var(--color-ink)]">—</p>
         </div>
       </div>
+
+      {/* Source health strip */}
+      <SourceHealthFooter />
 
       {/* Map fills remaining space */}
       <div className="relative flex-1">
