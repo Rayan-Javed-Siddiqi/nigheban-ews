@@ -16,11 +16,11 @@ interface LayerToggle {
 }
 
 const LAYER_TOGGLES: LayerToggle[] = [
-  { id: 'snow',    label: 'NASA Snow Cover', layerIds: ['snow-cover-layer'],    defaultVisible: false },
+  { id: 'snow',    label: 'NASA Snow Cover', layerIds: ['snow-cover-layer'], defaultVisible: false },
   { id: 'glacial', label: 'Glacial Lakes',   layerIds: ['glacial-lake-points'], defaultVisible: true  },
   { id: 'drought', label: 'Drought Index',   layerIds: ['drought-choropleth'],  defaultVisible: false },
   { id: 'flood',   label: 'Flood Risk',      layerIds: ['flood-risk-fill'],     defaultVisible: true  },
-  { id: 'hazards', label: 'Hazard Events',   layerIds: ['hazard-points'],       defaultVisible: true  },
+  { id: 'hazards', label: 'Hazard Events',   layerIds: ['hazard-points', 'hazard-fill', 'hazard-line'], defaultVisible: true  },
 ]
 
 /* ------------------------------------------------------------------ */
@@ -111,21 +111,26 @@ export default function DashboardMap() {
 
     map.on('load', async () => {
       /* ========================================================== */
-      /*  1. NASA GIBS Snow Cover – raster tiles                    */
+      /*  1. NASA GIBS Snow Cover – raster tiles & Mask             */
       /* ========================================================== */
       map.addSource('snow-cover', {
         type: 'raster',
         tiles: [
-          `https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/MODIS_Terra_NDSI_Snow_Cover/default/${yesterdayStr}/GoogleMapsCompatible_Level8/{z}/{y}/{x}.png`,
+          `https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/MODIS_Terra_NDSI_Snow_Cover/default/2024-02-15/GoogleMapsCompatible_Level8/{z}/{y}/{x}.png`,
         ],
         tileSize: 256,
+        maxzoom: 8,
       })
 
       map.addLayer({
         id: 'snow-cover-layer',
         type: 'raster',
         source: 'snow-cover',
-        paint: { 'raster-opacity': 0.6 },
+        paint: { 
+          'raster-opacity': 0.7,
+          'raster-hue-rotate': 180,    // Turns the original pinks/reds into cool cyan/light blue
+          'raster-contrast': 0.5,      // Softens the colors slightly
+        },
         layout: { visibility: 'none' }, // toggled on by user
       })
 
@@ -245,7 +250,7 @@ export default function DashboardMap() {
       }
 
       /* ========================================================== */
-      /*  5. Hazard events (existing)                               */
+      /*  5. Hazard events (Polygons and Points)                    */
       /* ========================================================== */
       try {
         const hazardRes = await fetch('/api/hazards')
@@ -253,10 +258,12 @@ export default function DashboardMap() {
 
         map.addSource('hazards', { type: 'geojson', data: hazardGeojson })
 
+        // Render point-based hazards as circles
         map.addLayer({
           id: 'hazard-points',
           type: 'circle',
           source: 'hazards',
+          filter: ['==', ['geometry-type'], 'Point'],
           paint: {
             'circle-radius': 8,
             'circle-color': [
@@ -273,25 +280,69 @@ export default function DashboardMap() {
           layout: { visibility: 'visible' },
         })
 
-        map.on('click', 'hazard-points', (e) => {
+        // Render polygon-based hazards (like districts) as a flashing/colored fill
+        map.addLayer({
+          id: 'hazard-fill',
+          type: 'fill',
+          source: 'hazards',
+          filter: ['!=', ['geometry-type'], 'Point'],
+          paint: {
+            'fill-color': [
+              'match',
+              ['get', 'severity'],
+              'emergency', '#B3261E',
+              'warning', '#D97757',
+              'watch', '#E0A030',
+              '#888888',
+            ],
+            'fill-opacity': 0.4,
+          },
+          layout: { visibility: 'visible' },
+        })
+
+        map.addLayer({
+          id: 'hazard-line',
+          type: 'line',
+          source: 'hazards',
+          filter: ['!=', ['geometry-type'], 'Point'],
+          paint: {
+            'line-color': [
+              'match',
+              ['get', 'severity'],
+              'emergency', '#B3261E',
+              'warning', '#D97757',
+              'watch', '#E0A030',
+              '#888888',
+            ],
+            'line-width': 3,
+          },
+          layout: { visibility: 'visible' },
+        })
+
+        // Add popups for hazard layers
+        const handleHazardClick = (e: any) => {
           const feature = e.features?.[0]
           if (!feature) return
           new maplibregl.Popup()
             .setLngLat(e.lngLat)
             .setHTML(
               `<strong>${feature.properties?.title}</strong><br/>
-               Severity: ${feature.properties?.severity}<br/>
+               Severity: <span style="text-transform: uppercase; font-weight: bold;">${feature.properties?.severity}</span><br/>
                ${new Date(feature.properties?.starts_at).toLocaleString()}`,
             )
             .addTo(map)
-        })
+        }
 
-        map.on('mouseenter', 'hazard-points', () => {
-          map.getCanvas().style.cursor = 'pointer'
-        })
-        map.on('mouseleave', 'hazard-points', () => {
-          map.getCanvas().style.cursor = ''
-        })
+        map.on('click', 'hazard-points', handleHazardClick)
+        map.on('click', 'hazard-fill', handleHazardClick)
+
+        const changeCursor = () => { map.getCanvas().style.cursor = 'pointer' }
+        const resetCursor = () => { map.getCanvas().style.cursor = '' }
+
+        map.on('mouseenter', 'hazard-points', changeCursor)
+        map.on('mouseleave', 'hazard-points', resetCursor)
+        map.on('mouseenter', 'hazard-fill', changeCursor)
+        map.on('mouseleave', 'hazard-fill', resetCursor)
       } catch (err) {
         console.error('Failed to load hazard data:', err)
       }

@@ -7,7 +7,8 @@ async function approveCandidate(formData: FormData) {
   'use server'
   const id = formData.get('id') as string
   const supabase = await createClient()
-  await supabase.from('alert_candidate').update({ status: 'approved' }).eq('id', id)
+  const { error } = await supabase.from('alert_candidate').update({ status: 'approved' }).eq('id', id)
+  if (error) throw new Error(error.message)
   revalidatePath('/dashboard/alerts')
 }
 
@@ -15,7 +16,8 @@ async function dismissCandidate(formData: FormData) {
   'use server'
   const id = formData.get('id') as string
   const supabase = await createClient()
-  await supabase.from('alert_candidate').update({ status: 'dismissed' }).eq('id', id)
+  const { error } = await supabase.from('alert_candidate').update({ status: 'dismissed' }).eq('id', id)
+  if (error) throw new Error(error.message)
   revalidatePath('/dashboard/alerts')
 }
 
