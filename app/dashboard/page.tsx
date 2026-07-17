@@ -2,6 +2,7 @@ import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
 import DashboardMap from './DashboardMap'
 import SourceHealthFooter from './SourceHealthFooter'
+import AdvisoriesFeed from './AdvisoriesFeed'
 
 export default async function DashboardPage() {
   const supabase = await createClient()
@@ -67,9 +68,12 @@ export default async function DashboardPage() {
       </div>
       {/* Source health strip */}
       <SourceHealthFooter />
-      {/* Map fills remaining space */}
-      <div className="relative flex-1">
-        <DashboardMap />
+      {/* Main content: Map and Sidebar */}
+      <div className="relative flex flex-1 overflow-hidden">
+        <div className="relative flex-1">
+          <DashboardMap />
+        </div>
+        <AdvisoriesFeed />
       </div>
     </div>
   )
