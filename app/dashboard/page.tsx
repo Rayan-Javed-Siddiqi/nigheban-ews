@@ -32,6 +32,9 @@ export default async function DashboardPage() {
           </div>
         </div>
         <div className="flex items-center gap-4">
+          <a href="/dashboard/alerts" className="text-sm font-medium text-[var(--color-emergency)] hover:text-red-400">
+            Review Alerts →
+          </a>
           <a href="/dashboard/stations" className="text-sm text-white/80 underline hover:text-white">
             Station Health →
           </a>
