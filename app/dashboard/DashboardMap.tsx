@@ -37,6 +37,31 @@ export default function DashboardMap() {
     mapRef.current = map
 
     map.on('load', async () => {
+// --- Flood risk overlay ---
+      const floodRes = await fetch('/api/flood-forecast')
+      const floodGeojson = await floodRes.json()
+
+      map.addSource('flood-risk', {
+        type: 'geojson',
+        data: floodGeojson,
+      })
+
+      map.addLayer({
+        id: 'flood-risk-fill',
+        type: 'fill',
+        source: 'flood-risk',
+        paint: {
+          'fill-color': [
+            'match',
+            ['get', 'risk_level'],
+            'high', '#B3261E',
+            'medium', '#E0A030',
+            'low', '#0F6B3D',
+            '#CCCCCC',
+          ],
+          'fill-opacity': 0.35,
+        },
+      })
       // --- Districts ---
       const res = await fetch('/api/districts')
       const geojson = await res.json()

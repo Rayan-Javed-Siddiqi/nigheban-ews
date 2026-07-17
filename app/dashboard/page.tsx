@@ -6,21 +6,17 @@ import SourceHealthFooter from './SourceHealthFooter'
 export default async function DashboardPage() {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
-
   if (!user) {
     redirect('/login')
   }
-
   const { data: profile } = await supabase
     .from('profile')
     .select('full_name, role')
     .eq('id', user.id)
     .single()
-
   const { count: districtCount } = await supabase
     .from('district')
     .select('*', { count: 'exact', head: true })
-
   return (
     <div className="flex h-screen flex-col bg-[var(--color-base)]">
       {/* Top bar */}
@@ -35,6 +31,9 @@ export default async function DashboardPage() {
           </div>
         </div>
         <div className="flex items-center gap-4">
+          <a href="/dashboard/stations" className="text-sm text-white/80 underline hover:text-white">
+            Station Health →
+          </a>
           <span className="text-sm text-white/90">
             {profile?.full_name ?? user.email}
             <span className="ml-2 rounded-full bg-white/15 px-2 py-0.5 font-mono text-xs uppercase">
@@ -43,7 +42,6 @@ export default async function DashboardPage() {
           </span>
         </div>
       </header>
-
       {/* KPI strip */}
       <div className="grid grid-cols-3 gap-px border-b border-[var(--color-border)] bg-[var(--color-border)]">
         <div className="bg-[var(--color-surface)] px-6 py-4">
@@ -67,10 +65,8 @@ export default async function DashboardPage() {
           <p className="mt-1 font-mono text-2xl font-semibold text-[var(--color-ink)]">—</p>
         </div>
       </div>
-
       {/* Source health strip */}
       <SourceHealthFooter />
-
       {/* Map fills remaining space */}
       <div className="relative flex-1">
         <DashboardMap />
