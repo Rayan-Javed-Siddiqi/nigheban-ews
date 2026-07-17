@@ -1,0 +1,12 @@
+name: Simulate Station Telemetry
+on:
+  schedule:
+    - cron: '*/10 * * * *'
+  workflow_dispatch:
+jobs:
+  simulate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Call simulator endpoint
+        run: |
+          curl -f -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" https://nigheban-ews.vercel.app/api/simulate/stations

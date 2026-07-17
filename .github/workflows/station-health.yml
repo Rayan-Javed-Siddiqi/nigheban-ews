@@ -1,0 +1,12 @@
+name: Station Health Sweep
+on:
+  schedule:
+    - cron: '*/5 * * * *'
+  workflow_dispatch:
+jobs:
+  health-check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Call station health endpoint
+        run: |
+          curl -f -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" https://nigheban-ews.vercel.app/api/cron/station-health

@@ -1,7 +1,5 @@
 {
   "crons": [
-    { "path": "/api/simulate/stations", "schedule": "*/10 * * * *" },
-    { "path": "/api/cron/station-health", "schedule": "*/5 * * * *" },
-    { "path": "/api/ingest/flood-open-meteo", "schedule": "0 */6 * * *" }
+    { "path": "/api/ingest/flood-open-meteo", "schedule": "0 0 * * *" }
   ]
 }
