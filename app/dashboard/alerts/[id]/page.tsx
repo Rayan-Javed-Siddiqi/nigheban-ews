@@ -121,6 +121,25 @@ export default async function AlertComposerPage({
     .eq('entity_id', id)
     .order('at', { ascending: true })
 
+  let deliveryStats = null
+  if (alert.status === 'issued') {
+    const { data: deliveries } = await supabase
+      .from('alert_delivery')
+      .select('status')
+      .eq('alert_id', id)
+      
+    if (deliveries) {
+      deliveryStats = {
+        total: deliveries.length,
+        queued: deliveries.filter((d: any) => d.status === 'queued').length,
+        sent: deliveries.filter((d: any) => d.status === 'sent').length,
+        delivered: deliveries.filter((d: any) => d.status === 'delivered').length,
+        failed: deliveries.filter((d: any) => d.status === 'failed').length,
+        acknowledged: deliveries.filter((d: any) => d.status === 'acknowledged').length,
+      }
+    }
+  }
+
   const allowedNext = STATUS_FLOW[alert.status] ?? []
   const inputClass = "w-full rounded-md border border-[var(--color-border)] px-3 py-2 text-sm"
   const labelClass = "mb-1 block text-xs font-semibold uppercase tracking-wide text-[var(--color-ink)]/60"
@@ -272,6 +291,36 @@ export default async function AlertComposerPage({
             >
               View CAP XML
             </a>
+          </div>
+        )}
+
+        {alert.status === 'issued' && deliveryStats && (
+          <div className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-5">
+            <h2 className="mb-4 text-sm font-semibold uppercase tracking-wide text-[var(--color-ink)]/60">
+              Delivery &amp; Acknowledgement Statistics
+            </h2>
+            <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+              <div className="rounded bg-white border border-[var(--color-border)] p-3 shadow-sm text-center">
+                <div className="text-2xl font-mono font-bold text-[var(--color-ink)]">{deliveryStats.total}</div>
+                <div className="text-xs uppercase font-semibold text-[var(--color-ink)]/50">Dispatched</div>
+              </div>
+              <div className="rounded bg-white border border-[var(--color-border)] p-3 shadow-sm text-center">
+                <div className="text-2xl font-mono font-bold text-[var(--color-ink)]">{deliveryStats.queued + deliveryStats.sent}</div>
+                <div className="text-xs uppercase font-semibold text-[var(--color-ink)]/50">In Transit</div>
+              </div>
+              <div className="rounded bg-white border border-[var(--color-border)] p-3 shadow-sm text-center">
+                <div className="text-2xl font-mono font-bold text-green-600">{deliveryStats.delivered}</div>
+                <div className="text-xs uppercase font-semibold text-[var(--color-ink)]/50">Delivered</div>
+              </div>
+              <div className="rounded bg-white border border-[var(--color-border)] p-3 shadow-sm text-center">
+                <div className="text-2xl font-mono font-bold text-[var(--color-primary)]">{deliveryStats.acknowledged}</div>
+                <div className="text-xs uppercase font-semibold text-[var(--color-ink)]/50">Acknowledged</div>
+              </div>
+              <div className="rounded bg-white border border-[var(--color-border)] p-3 shadow-sm text-center">
+                <div className="text-2xl font-mono font-bold text-red-600">{deliveryStats.failed}</div>
+                <div className="text-xs uppercase font-semibold text-[var(--color-ink)]/50">Failed</div>
+              </div>
+            </div>
           </div>
         )}
 

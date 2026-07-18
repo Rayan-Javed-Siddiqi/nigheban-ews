@@ -58,5 +58,45 @@ export async function POST(
       .eq('id', u.id)
   }
 
-  return NextResponse.json({ advanced: updates.length, remaining: rows.length - updates.length })
+  let hasAcks = false
+  for (const u of updates) {
+    if (u.status === 'acknowledged') hasAcks = true
+  }
+
+  const { data: profile } = await supabase
+    .from('profile')
+    .select('role')
+    .eq('id', user.id)
+    .single()
+
+  if (hasAcks) {
+    await supabase.from('audit_log').insert({
+      action: 'acknowledgement_received',
+      entity: 'alert_candidate',
+      entity_id: alertId,
+      actor: user.id,
+      actor_role: profile?.role || 'SYSTEM',
+    })
+  }
+
+  const remaining = rows.length - updates.length
+  if (remaining === 0 && rows.length > 0) {
+    const { data: existing } = await supabase
+      .from('audit_log')
+      .select('id')
+      .eq('entity_id', alertId)
+      .eq('action', 'dissemination_completed')
+    
+    if (!existing || existing.length === 0) {
+      await supabase.from('audit_log').insert({
+        action: 'dissemination_completed',
+        entity: 'alert_candidate',
+        entity_id: alertId,
+        actor: user.id,
+        actor_role: profile?.role || 'SYSTEM',
+      })
+    }
+  }
+
+  return NextResponse.json({ advanced: updates.length, remaining })
 }
