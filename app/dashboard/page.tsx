@@ -18,6 +18,21 @@ export default async function DashboardPage() {
   const { count: districtCount } = await supabase
     .from('district')
     .select('*', { count: 'exact', head: true })
+
+  const { data: issuedAlerts } = await supabase
+    .from('alert_candidate')
+    .select('id, district:district_id(population)')
+    .eq('status', 'issued')
+  const activeWarnings = issuedAlerts?.length || 0
+  const popAffected = issuedAlerts?.reduce((sum: number, a: any) => sum + (a.district?.population || 0), 0) || 0
+
+  const { data: deliveries } = await supabase
+    .from('alert_delivery')
+    .select('status')
+  
+  const totalDeliveries = deliveries?.length || 0
+  const deliveredCount = deliveries?.filter((d: any) => d.status === 'delivered' || d.status === 'acknowledged').length || 0
+  const deliveryRate = totalDeliveries > 0 ? Math.round((deliveredCount / totalDeliveries) * 100) : 0
   return (
     <div className="flex h-screen flex-col bg-[var(--color-base)]">
       {/* Top bar */}
@@ -32,6 +47,9 @@ export default async function DashboardPage() {
           </div>
         </div>
         <div className="flex items-center gap-4">
+          <a href="/dashboard/audit" className="text-sm text-white/80 underline hover:text-white">
+            Audit Log →
+          </a>
           <a href="/dashboard/alerts" className="text-sm font-medium text-[var(--color-emergency)] hover:text-red-400">
             Review Alerts →
           </a>
@@ -47,12 +65,12 @@ export default async function DashboardPage() {
         </div>
       </header>
       {/* KPI strip */}
-      <div className="grid grid-cols-3 gap-px border-b border-[var(--color-border)] bg-[var(--color-border)]">
+      <div className="grid grid-cols-4 gap-px border-b border-[var(--color-border)] bg-[var(--color-border)]">
         <div className="bg-[var(--color-surface)] px-6 py-4">
           <p className="text-xs font-medium uppercase tracking-wide text-[var(--color-ink)]/50">
             Active Warnings
           </p>
-          <p className="mt-1 font-mono text-2xl font-semibold text-[var(--color-ink)]">0</p>
+          <p className="mt-1 font-mono text-2xl font-semibold text-[var(--color-emergency)]">{activeWarnings}</p>
         </div>
         <div className="bg-[var(--color-surface)] px-6 py-4">
           <p className="text-xs font-medium uppercase tracking-wide text-[var(--color-ink)]/50">
@@ -66,7 +84,18 @@ export default async function DashboardPage() {
           <p className="text-xs font-medium uppercase tracking-wide text-[var(--color-ink)]/50">
             Population Affected
           </p>
-          <p className="mt-1 font-mono text-2xl font-semibold text-[var(--color-ink)]">—</p>
+          <p className="mt-1 font-mono text-2xl font-semibold text-[var(--color-ink)]">
+            {popAffected > 0 ? popAffected.toLocaleString() : '—'}
+          </p>
+        </div>
+        <div className="bg-[var(--color-surface)] px-6 py-4">
+          <p className="text-xs font-medium uppercase tracking-wide text-[var(--color-ink)]/50">
+            Delivery Success Rate
+          </p>
+          <p className="mt-1 font-mono text-2xl font-semibold text-[var(--color-ink)]">
+            {totalDeliveries > 0 ? `${deliveryRate}%` : '—'}
+            <span className="ml-2 text-xs text-[var(--color-ink)]/50">({deliveredCount}/{totalDeliveries})</span>
+          </p>
         </div>
       </div>
       {/* Source health strip */}

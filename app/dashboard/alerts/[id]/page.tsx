@@ -2,6 +2,7 @@ import { createClient } from '@/lib/supabase/server'
 import { redirect, notFound } from 'next/navigation'
 import Link from 'next/link'
 import { revalidatePath } from 'next/cache'
+import PrintButton from './PrintButton'
 
 const STATUS_FLOW: Record<string, string[]> = {
   pending: ['draft', 'dismissed'],
@@ -40,6 +41,24 @@ async function updateCapFields(formData: FormData) {
     .eq('id', id)
 
   if (error) throw new Error(error.message)
+
+  const { data: { user } } = await supabase.auth.getUser()
+  if (user) {
+    const { data: profile } = await supabase
+      .from('profile')
+      .select('role')
+      .eq('id', user.id)
+      .single()
+
+    await supabase.from('audit_log').insert({
+      action: 'edit_cap_fields',
+      entity: 'alert_candidate',
+      entity_id: id,
+      actor: user.id,
+      actor_role: profile?.role || 'viewer',
+    })
+  }
+
   revalidatePath(`/dashboard/alerts/${id}`)
 }
 
@@ -96,20 +115,27 @@ export default async function AlertComposerPage({
 
   if (!alert) notFound()
 
+  const { data: auditLogs } = await supabase
+    .from('audit_log')
+    .select('*')
+    .eq('entity_id', id)
+    .order('at', { ascending: true })
+
   const allowedNext = STATUS_FLOW[alert.status] ?? []
   const inputClass = "w-full rounded-md border border-[var(--color-border)] px-3 py-2 text-sm"
   const labelClass = "mb-1 block text-xs font-semibold uppercase tracking-wide text-[var(--color-ink)]/60"
 
   return (
     <div className="min-h-screen bg-[var(--color-base)]">
-      <header className="flex items-center gap-4 border-b border-[var(--color-border)] bg-[var(--color-primary)] px-6 py-4">
+      <header className="print:hidden flex items-center gap-4 border-b border-[var(--color-border)] bg-[var(--color-primary)] px-6 py-4">
         <Link href="/dashboard/alerts" className="text-sm text-white/70 hover:text-white">
           ← Alert Review
         </Link>
         <h1 className="text-lg font-semibold text-white">CAP Composer</h1>
-        <span className="ml-auto rounded-full bg-white/10 px-3 py-1 font-mono text-xs uppercase text-white">
+        <span className="ml-4 rounded-full bg-white/10 px-3 py-1 font-mono text-xs uppercase text-white">
           {alert.status}
         </span>
+        <PrintButton />
       </header>
 
       <div className="mx-auto max-w-3xl p-6 space-y-6">
@@ -246,6 +272,27 @@ export default async function AlertComposerPage({
             >
               View CAP XML
             </a>
+          </div>
+        )}
+
+        {auditLogs && auditLogs.length > 0 && (
+          <div className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-5">
+            <h2 className="mb-4 text-sm font-semibold uppercase tracking-wide text-[var(--color-ink)]/60">
+              Audit Timeline
+            </h2>
+            <div className="space-y-4">
+              {auditLogs.map((log: any) => (
+                <div key={log.id} className="flex flex-col rounded border border-[var(--color-border)] bg-white p-3 shadow-sm">
+                  <div className="flex items-center justify-between mb-1">
+                    <span className="font-bold text-[var(--color-ink)]">{log.action}</span>
+                    <span className="font-mono text-xs text-[var(--color-ink)]/50">{new Date(log.at).toLocaleString('en-GB')}</span>
+                  </div>
+                  <div className="text-sm text-[var(--color-ink)]/70">
+                    Actor Role: <span className="font-semibold">{log.actor_role?.toUpperCase() || 'SYSTEM'}</span>
+                  </div>
+                </div>
+              ))}
+            </div>
           </div>
         )}
       </div>

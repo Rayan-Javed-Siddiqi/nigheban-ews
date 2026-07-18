@@ -61,3 +61,8 @@ using (auth.uid() is not null);
 -- 4. Enable Realtime on alert_delivery so the Acknowledgement Simulation
 --    updates live without polling. (No-op if already enabled.)
 alter publication supabase_realtime add table alert_delivery;
+
+-- 5. RLS policies for audit_log to allow select query for authenticated users
+alter table audit_log enable row level security;
+create policy "Allow authenticated select on audit_log" on audit_log
+  for select to authenticated using (true);
