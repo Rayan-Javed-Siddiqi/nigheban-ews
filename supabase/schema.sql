@@ -1,5 +1,12 @@
 -- Nigheban EWS Database Schema Backup
 
+-- ⚠ STALE as of 2026-07-18. This dump does not include the Day 5 changes
+-- (alert_delivery FK fix + RLS, channel_recipient_count table, Realtime on
+-- alert_delivery). See supabase/migrations/20260718_day5_dissemination_ack.sql
+-- for the authoritative record of what changed and why.
+-- TODO: wire up `npx supabase login` + `npx supabase link` so this file can
+-- be regenerated properly via `npx supabase db dump -f supabase/schema.sql`.
+
 -- Table: weather_reading
 CREATE TABLE public."weather_reading" (
   id uuid NOT NULL DEFAULT gen_random_uuid(),
@@ -7619,23 +7626,23 @@ CREATE OR REPLACE FUNCTION public.get_districts_geojson()
  RETURNS jsonb
  LANGUAGE sql
  STABLE
-AS $function$
-  select jsonb_build_object(
-    'type', 'FeatureCollection',
-    'features', jsonb_agg(
-      jsonb_build_object(
-        'type', 'Feature',
-        'geometry', ST_AsGeoJSON(geom)::jsonb,
-        'properties', jsonb_build_object(
-          'id', id,
-          'name_en', name_en,
-          'province', province,
-          'adm2_code', adm2_code
-        )
-      )
-    )
-  )
-  from district;
+AS $function$
+  select jsonb_build_object(
+    'type', 'FeatureCollection',
+    'features', jsonb_agg(
+      jsonb_build_object(
+        'type', 'Feature',
+        'geometry', ST_AsGeoJSON(geom)::jsonb,
+        'properties', jsonb_build_object(
+          'id', id,
+          'name_en', name_en,
+          'province', province,
+          'adm2_code', adm2_code
+        )
+      )
+    )
+  )
+  from district;
 $function$
 ;
 
@@ -7644,25 +7651,25 @@ CREATE OR REPLACE FUNCTION public.get_hazard_events_geojson()
  RETURNS jsonb
  LANGUAGE sql
  STABLE
-AS $function$
-  select jsonb_build_object(
-    'type', 'FeatureCollection',
-    'features', jsonb_agg(
-      jsonb_build_object(
-        'type', 'Feature',
-        'geometry', ST_AsGeoJSON(geom)::jsonb,
-        'properties', jsonb_build_object(
-          'id', id,
-          'hazard', hazard,
-          'severity', severity,
-          'title', title,
-          'starts_at', starts_at
-        )
-      )
-    )
-  )
-  from hazard_event
-  where geom is not null;
+AS $function$
+  select jsonb_build_object(
+    'type', 'FeatureCollection',
+    'features', jsonb_agg(
+      jsonb_build_object(
+        'type', 'Feature',
+        'geometry', ST_AsGeoJSON(geom)::jsonb,
+        'properties', jsonb_build_object(
+          'id', id,
+          'hazard', hazard,
+          'severity', severity,
+          'title', title,
+          'starts_at', starts_at
+        )
+      )
+    )
+  )
+  from hazard_event
+  where geom is not null;
 $function$
 ;
 
@@ -7671,8 +7678,8 @@ CREATE OR REPLACE FUNCTION public.get_district_lonlat(district_id uuid)
  RETURNS TABLE(lon double precision, lat double precision)
  LANGUAGE sql
  STABLE
-AS $function$
-  select ST_X(centroid), ST_Y(centroid) from district where id = district_id;
+AS $function$
+  select ST_X(centroid), ST_Y(centroid) from district where id = district_id;
 $function$
 ;
 
@@ -7681,14 +7688,14 @@ CREATE OR REPLACE FUNCTION public.get_district_hazards(p_district_id uuid, p_lim
  RETURNS TABLE(id uuid, hazard text, severity text, title text, starts_at timestamp with time zone, source text)
  LANGUAGE sql
  STABLE
-AS $function$
-  select he.id, he.hazard, he.severity, he.title, he.starts_at, he.source
-  from hazard_event he, district d
-  where d.id = p_district_id
-    and he.geom is not null
-    and ST_DWithin(he.geom::geography, d.geom::geography, 50000)
-  order by he.starts_at desc nulls last
-  limit p_limit;
+AS $function$
+  select he.id, he.hazard, he.severity, he.title, he.starts_at, he.source
+  from hazard_event he, district d
+  where d.id = p_district_id
+    and he.geom is not null
+    and ST_DWithin(he.geom::geography, d.geom::geography, 50000)
+  order by he.starts_at desc nulls last
+  limit p_limit;
 $function$
 ;
 

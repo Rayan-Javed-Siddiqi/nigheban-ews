@@ -227,7 +227,12 @@ export default async function AlertComposerPage({
 
         {alert.status === 'issued' && (
           <div className="flex gap-3">
-            
+            <a href={`/dashboard/alerts/${alert.id}/dissemination`}
+              className="rounded-md bg-[var(--color-emergency)] px-4 py-2 text-sm font-semibold text-white hover:bg-red-700"
+            >
+              Dissemination Board
+            </a>
+
               <a href={`/api/alerts/${alert.id}/cap.json`}
               target="_blank"
               className="rounded-md border border-[var(--color-border)] px-4 py-2 text-sm hover:bg-[var(--color-border)]"
