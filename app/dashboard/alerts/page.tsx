@@ -29,8 +29,13 @@ export default async function AlertsReviewPage() {
   const { data: candidates } = await supabase
     .from('alert_candidate')
     .select('*, district:district_id(name_en, province)')
-    .eq('status', 'pending')
+    .in('status', ['pending', 'draft', 'pending_approval'])
     .order('created_at', { ascending: false })
+
+  const sortedCandidates = candidates?.sort((a, b) => {
+    const rank: Record<string, number> = { 'pending_approval': 1, 'draft': 2, 'pending': 3 }
+    return (rank[a.status] || 99) - (rank[b.status] || 99)
+  }) || []
 
   return (
     <div className="flex h-screen flex-col bg-[var(--color-base)]">
@@ -44,21 +49,38 @@ export default async function AlertsReviewPage() {
       <div className="flex-1 overflow-auto p-6">
         <div className="mx-auto max-w-4xl">
           <h2 className="mb-4 text-sm font-semibold uppercase tracking-wide text-[var(--color-ink)]/60">
-            Pending Candidates ({candidates?.length || 0})
+            Pending Candidates ({sortedCandidates.length})
           </h2>
           
-          {!candidates || candidates.length === 0 ? (
+          {sortedCandidates.length === 0 ? (
             <div className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-8 text-center text-[var(--color-ink)]/50">
               No pending alerts require review.
             </div>
           ) : (
             <div className="space-y-4">
-              {candidates.map((c) => (
+              {sortedCandidates.map((c) => (
                 <div key={c.id} className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-5 shadow-sm">
                   <div className="mb-2 flex items-center justify-between">
-                    <span className="rounded bg-[var(--color-emergency)]/10 px-2 py-0.5 font-mono text-xs font-bold uppercase text-[var(--color-emergency)]">
-                      {c.severity}
-                    </span>
+                    <div className="flex gap-2 items-center">
+                      <span className="rounded bg-[var(--color-emergency)]/10 px-2 py-0.5 font-mono text-xs font-bold uppercase text-[var(--color-emergency)]">
+                        {c.severity}
+                      </span>
+                      {c.status === 'pending_approval' && (
+                        <span className="rounded bg-yellow-100 text-yellow-800 px-2 py-0.5 font-mono text-xs font-bold uppercase border border-yellow-300">
+                          Requires DG Approval
+                        </span>
+                      )}
+                      {c.status === 'draft' && (
+                        <span className="rounded bg-gray-100 text-gray-600 px-2 py-0.5 font-mono text-xs font-bold uppercase border border-gray-300">
+                          Drafting in Progress
+                        </span>
+                      )}
+                      {c.status === 'pending' && (
+                        <span className="rounded bg-blue-50 text-blue-600 px-2 py-0.5 font-mono text-xs font-bold uppercase border border-blue-200">
+                          New Unassigned
+                        </span>
+                      )}
+                    </div>
                     <span className="font-mono text-xs text-[var(--color-ink)]/40">
                       Generated {new Date(c.created_at).toLocaleString('en-GB')}
                     </span>
