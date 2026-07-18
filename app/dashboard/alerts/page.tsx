@@ -63,7 +63,9 @@ export default async function AlertsReviewPage() {
                       Generated {new Date(c.created_at).toLocaleString('en-GB')}
                     </span>
                   </div>
-                  <h3 className="text-lg font-semibold text-[var(--color-ink)]">{c.title}</h3>
+                  <Link href={`/dashboard/alerts/${c.id}`} className="text-lg font-semibold text-[var(--color-ink)] hover:underline">
+  {c.title}
+</Link>
                   <p className="mt-1 text-sm text-[var(--color-ink)]/70">{c.description}</p>
                   
                   <div className="mt-4 grid grid-cols-2 gap-4 rounded bg-[var(--color-base)] p-3 font-mono text-xs">
