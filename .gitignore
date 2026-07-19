@@ -43,4 +43,5 @@ next-env.d.ts
 
 scripts/import_districts.py
 
-data/boundaries/
+data/boundaries/"scratch/" 
+"CLAUDE_PROJECT_HANDOFF.md" 
