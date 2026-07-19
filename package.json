@@ -9,13 +9,18 @@
     "lint": "eslint"
   },
   "dependencies": {
+    "@deck.gl/react": "^9.3.7",
     "@supabase/ssr": "^0.12.3",
     "@supabase/supabase-js": "^2.110.5",
+    "deck.gl": "^9.3.7",
     "maplibre-gl": "^5.24.0",
     "next": "16.2.10",
+    "next-intl": "^4.13.2",
     "pdf-parse": "^1.1.1",
+    "puppeteer": "^25.3.0",
     "react": "19.2.4",
     "react-dom": "19.2.4",
+    "react-map-gl": "^8.1.1",
     "zod": "^4.4.3"
   },
   "devDependencies": {

@@ -1,0 +1,12 @@
+{
+  "Index": {
+    "title": "نگہبان EWS"
+  },
+  "Dashboard": {
+    "alerts": "الرٹس",
+    "stations": "اسٹیشن کی صحت",
+    "district": "ضلعی منظر",
+    "audit": "آڈٹ لاگ",
+    "logout": "سائن آؤٹ"
+  }
+}

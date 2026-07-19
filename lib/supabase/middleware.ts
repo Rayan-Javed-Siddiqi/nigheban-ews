@@ -1,9 +1,7 @@
 import { createServerClient } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
 
-export async function updateSession(request: NextRequest) {
-  let supabaseResponse = NextResponse.next({ request })
-
+export async function updateSession(request: NextRequest, response: NextResponse) {
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
@@ -16,9 +14,8 @@ export async function updateSession(request: NextRequest) {
           cookiesToSet.forEach(({ name, value }) =>
             request.cookies.set(name, value)
           )
-          supabaseResponse = NextResponse.next({ request })
           cookiesToSet.forEach(({ name, value, options }) =>
-            supabaseResponse.cookies.set(name, value, options)
+            response.cookies.set(name, value, options)
           )
         },
       },
@@ -29,17 +26,23 @@ export async function updateSession(request: NextRequest) {
     data: { user },
   } = await supabase.auth.getUser()
 
+  const pathname = request.nextUrl.pathname
+  const pathWithoutLocale = pathname.replace(/^\/(en|ur)/, '')
+
   // Not logged in and trying to reach a protected page -> send to /login
   if (
     !user &&
-    !request.nextUrl.pathname.startsWith('/login') &&
-    !request.nextUrl.pathname.startsWith('/api') &&
-    request.nextUrl.pathname !== '/'
+    !pathWithoutLocale.startsWith('/login') &&
+    !pathWithoutLocale.startsWith('/api') &&
+    pathWithoutLocale !== '' && pathWithoutLocale !== '/'
   ){
     const url = request.nextUrl.clone()
-    url.pathname = '/login'
+    // redirect to localized login
+    const localeMatch = pathname.match(/^\/(en|ur)/)
+    const localePrefix = localeMatch ? localeMatch[0] : '/en'
+    url.pathname = `${localePrefix}/login`
     return NextResponse.redirect(url)
   }
 
-  return supabaseResponse
+  return response
 }

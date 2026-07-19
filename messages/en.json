@@ -1,0 +1,12 @@
+{
+  "Index": {
+    "title": "Nigheban EWS"
+  },
+  "Dashboard": {
+    "alerts": "Alerts",
+    "stations": "Station Health",
+    "district": "District View",
+    "audit": "Audit Log",
+    "logout": "Sign Out"
+  }
+}

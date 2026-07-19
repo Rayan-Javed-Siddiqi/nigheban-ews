@@ -119,10 +119,9 @@ async function transitionStatus(formData: FormData) {
 
 export default async function AlertComposerPage({
   params,
-}: {
-  params: Promise<{ id: string }>
+}: {    params: Promise<{ id: string, locale: string }>
 }) {
-  const { id } = await params
+  const { id, locale } = await params
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/login')
@@ -174,7 +173,7 @@ export default async function AlertComposerPage({
         <span className="ml-4 rounded-full bg-white/10 px-3 py-1 font-mono text-xs uppercase text-white">
           {alert.status}
         </span>
-        <PrintButton />
+        <PrintButton alertId={alert.id} locale={locale} />
       </header>
 
       <div className="mx-auto max-w-3xl p-6 space-y-6">

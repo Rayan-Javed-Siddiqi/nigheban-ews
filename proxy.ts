@@ -1,12 +1,20 @@
-import { type NextRequest } from 'next/server'
-import { updateSession } from '@/lib/supabase/middleware'
+import createIntlMiddleware from 'next-intl/middleware';
+import { NextRequest } from 'next/server';
+import { updateSession } from '@/lib/supabase/middleware';
 
-export async function proxy(request: NextRequest) {
-  return await updateSession(request)
+const handleI18nRouting = createIntlMiddleware({
+  locales: ['en', 'ur'],
+  defaultLocale: 'en'
+});
+
+export default async function middleware(request: NextRequest) {
+  return handleI18nRouting(request);
 }
 
 export const config = {
   matcher: [
-    '/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
-  ],
-}
+    '/',
+    '/(en|ur)/:path*',
+    '/((?!api|_next|_vercel|.*\\..*).*)'
+  ]
+};

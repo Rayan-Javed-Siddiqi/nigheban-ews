@@ -218,6 +218,22 @@ export default async function DistrictConsolePage({
           </div>
         </section>
 
+        {/* Live River / Flood Risk Panel */}
+        <section className={sectionClass}>
+          <h2 className={headingClass}>Live River / Flood Risk</h2>
+          <div className="flex h-32 items-center justify-center rounded border border-dashed border-[var(--color-border)] bg-[var(--color-base)]">
+            <p className="text-sm text-[var(--color-ink)]/40">River telemetry integration pending (Phase 3 Backend)</p>
+          </div>
+        </section>
+
+        {/* Weather Context Panel */}
+        <section className={sectionClass}>
+          <h2 className={headingClass}>Weather Context (Synoptic)</h2>
+          <div className="flex h-32 items-center justify-center rounded border border-dashed border-[var(--color-border)] bg-[var(--color-base)]">
+            <p className="text-sm text-[var(--color-ink)]/40">Synoptic weather integration pending</p>
+          </div>
+        </section>
+
         {/* PMD manual entry */}
         <section className={sectionClass}>
           <h2 className="mb-1 text-sm font-semibold uppercase tracking-wide text-[var(--color-ink)]/60">PMD Manual Entry</h2>

@@ -1,6 +1,6 @@
 'use client'
 
-import { submitManualReading } from '@/app/dashboard/district-actions'
+import { submitManualReading } from '@/app/[locale]/dashboard/district-actions'
 
 export default function ManualEntryForm({ districtId }: { districtId: string }) {
   return (
