@@ -1,5 +1,6 @@
 import { createClient } from '@/lib/supabase/server'
 import { NextResponse } from 'next/server'
+import { toCapSeverity } from '@/lib/cap-severity'
 
 export async function GET(
   _req: Request,
@@ -34,7 +35,7 @@ export async function GET(
       category: 'Met',
       event: alert.event_en,
       urgency: alert.urgency ? alert.urgency.charAt(0).toUpperCase() + alert.urgency.slice(1) : undefined,
-      severity: alert.severity ? alert.severity.charAt(0).toUpperCase() + alert.severity.slice(1) : undefined,
+      severity: alert.severity ? toCapSeverity(alert.severity) : undefined,
       certainty: alert.certainty ? alert.certainty.charAt(0).toUpperCase() + alert.certainty.slice(1) : undefined,
       effective: alert.starts_at,
       expires: alert.ends_at,

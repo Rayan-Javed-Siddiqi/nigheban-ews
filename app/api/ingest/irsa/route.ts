@@ -40,7 +40,13 @@ export async function GET() {
     })
   } catch (err) {
     await supabase.from('ingest_status').upsert(
-      { source: 'irsa', last_success_at: new Date().toISOString(), status: 'ok', last_error: null, last_error_at: null },
+      {
+        source: 'irsa',
+        status: 'error',
+        last_error: String(err),
+        last_error_at: new Date().toISOString(),
+        // last_success_at intentionally omitted — do not overwrite the last known-good timestamp
+      },
       { onConflict: 'source' }
     )
     return NextResponse.json({ error: String(err) }, { status: 500 })

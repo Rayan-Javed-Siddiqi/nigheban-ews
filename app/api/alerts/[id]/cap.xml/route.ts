@@ -1,5 +1,6 @@
 import { createClient } from '@/lib/supabase/server'
 import { NextResponse } from 'next/server'
+import { toCapSeverity } from '@/lib/cap-severity'
 
 function escapeXml(value: string | null | undefined): string {
   if (!value) return ''
@@ -33,7 +34,7 @@ export async function GET(
   }
 
   const areaDesc = alert.district ? `${alert.district.name_en}, ${alert.district.province}` : 'Unknown'
-  const severity = alert.severity ? alert.severity.charAt(0).toUpperCase() + alert.severity.slice(1) : ''
+  const severity = alert.severity ? toCapSeverity(alert.severity) : ''
   const urgency = alert.urgency ? alert.urgency.charAt(0).toUpperCase() + alert.urgency.slice(1) : ''
   const certainty = alert.certainty ? alert.certainty.charAt(0).toUpperCase() + alert.certainty.slice(1) : ''
 

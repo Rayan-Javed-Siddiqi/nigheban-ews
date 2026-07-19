@@ -1,0 +1,265 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Nigheban EWS - Overall Workflow Report</title>
+  <style>
+    :root {
+      --ink: #122018;
+      --muted: #52615a;
+      --bg: #f5f2ea;
+      --panel: #ffffff;
+      --line: #d8d3c6;
+      --accent: #0f6b3d;
+      --accent-2: #b3261e;
+    }
+
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: Arial, Helvetica, sans-serif;
+      color: var(--ink);
+      background: linear-gradient(180deg, #f5f2ea 0%, #efe8d9 100%);
+      line-height: 1.5;
+    }
+
+    .page {
+      max-width: 1080px;
+      margin: 0 auto;
+      padding: 40px 36px 48px;
+    }
+
+    .hero {
+      background: linear-gradient(135deg, #0f6b3d, #01411c);
+      color: white;
+      border-radius: 20px;
+      padding: 32px;
+      box-shadow: 0 12px 30px rgba(0, 0, 0, 0.12);
+    }
+
+    .hero h1 {
+      margin: 0 0 8px;
+      font-size: 32px;
+      letter-spacing: -0.02em;
+    }
+
+    .hero p {
+      margin: 0;
+      max-width: 800px;
+      color: rgba(255, 255, 255, 0.9);
+    }
+
+    .meta {
+      margin-top: 16px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      font-size: 12px;
+      color: rgba(255, 255, 255, 0.85);
+    }
+
+    .pill {
+      display: inline-block;
+      padding: 6px 10px;
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.12);
+      border: 1px solid rgba(255, 255, 255, 0.16);
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 18px;
+      margin-top: 20px;
+    }
+
+    .card {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 18px;
+      padding: 20px;
+      box-shadow: 0 6px 18px rgba(18, 32, 24, 0.04);
+    }
+
+    .card h2, .card h3 {
+      margin: 0 0 10px;
+      line-height: 1.2;
+    }
+
+    .card h2 { font-size: 22px; }
+    .card h3 { font-size: 16px; }
+
+    .section {
+      margin-top: 18px;
+    }
+
+    .section-title {
+      font-size: 18px;
+      margin: 0 0 10px;
+    }
+
+    .list {
+      margin: 0;
+      padding-left: 18px;
+    }
+
+    .list li { margin-bottom: 8px; }
+
+    .workflow {
+      display: grid;
+      gap: 10px;
+    }
+
+    .step {
+      border-left: 4px solid var(--accent);
+      background: #fbfaf6;
+      padding: 12px 14px;
+      border-radius: 10px;
+    }
+
+    .step strong {
+      display: block;
+      margin-bottom: 4px;
+    }
+
+    .missing {
+      border-left-color: var(--accent-2);
+    }
+
+    .footer {
+      margin-top: 18px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 10px;
+      font-size: 14px;
+    }
+
+    th, td {
+      text-align: left;
+      padding: 10px 12px;
+      border-bottom: 1px solid var(--line);
+      vertical-align: top;
+    }
+
+    th {
+      color: var(--muted);
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+
+    @media print {
+      body { background: white; }
+      .page { padding: 0; max-width: none; }
+      .card, .hero { box-shadow: none; }
+      .grid { grid-template-columns: 1fr 1fr; }
+      .card { break-inside: avoid; }
+      .page-break { break-before: page; }
+    }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <section class="hero">
+      <h1>Nigheban EWS - Overall Workflow Report</h1>
+      <p>
+        Summary of what has been built in the current workspace so far, mapped to the MVP guide.
+        This report covers the implemented workflow from ingestion to dashboard review, alert approval,
+        dissemination, acknowledgment simulation, audit logging, and supporting station-health tooling.
+      </p>
+      <div class="meta">
+        <span class="pill">Workspace: c:\Users\Hi\nigheban-ews</span>
+        <span class="pill">Report date: 18 Jul 2026</span>
+        <span class="pill">Scope: implemented workflow overview</span>
+      </div>
+    </section>
+
+    <div class="grid">
+      <section class="card">
+        <h2>What is built</h2>
+        <ul class="list">
+          <li>Supabase-backed auth, roles, district boundaries, and operational data tables.</li>
+          <li>Provincial dashboard with MapLibre map, advisories, source health, and hazard overlays.</li>
+          <li>Station health module with online/degraded/offline status and offline maintenance ticket automation.</li>
+          <li>Alert candidate review, CAP composer, approval flow, CAP JSON/XML exports, and audit timeline.</li>
+          <li>Dissemination board with dry-run channel breakdown and acknowledgement simulation.</li>
+          <li>Ingest routes for USGS, Open-Meteo, Open-Meteo flood, FIRMS, IRSA, PMD snapshot, drought, glacial lakes, districts, hazards, and station simulation.</li>
+        </ul>
+      </section>
+
+      <section class="card">
+        <h2>Workflow built</h2>
+        <div class="workflow">
+          <div class="step"><strong>1. Ingest</strong> External feeds and simulated telemetry enter the system through route handlers and cron jobs.</div>
+          <div class="step"><strong>2. Normalize</strong> Data is written into Supabase tables and views such as hazard events, flood forecasts, station health, advisories, and ingest status.</div>
+          <div class="step"><strong>3. Monitor</strong> The provincial console surfaces live hazard layers, advisories, district drill-downs, and source freshness indicators.</div>
+          <div class="step"><strong>4. Review</strong> Alert candidates are reviewed in the dashboard, edited in CAP fields, and approved or dismissed by role.</div>
+          <div class="step"><strong>5. Disseminate</strong> Issued alerts flow into the dissemination board with per-channel recipient counts and dry-run dispatch.</div>
+          <div class="step"><strong>6. Acknowledge</strong> Simulated realtime updates advance deliveries through queued, sent, delivered, failed, and acknowledged states.</div>
+          <div class="step"><strong>7. Audit</strong> Actions are logged to the audit trail and visible in the system audit view.</div>
+        </div>
+      </section>
+    </div>
+
+    <div class="grid section">
+      <section class="card">
+        <h2>Module status</h2>
+        <table>
+          <thead>
+            <tr>
+              <th>Module</th>
+              <th>Status</th>
+              <th>Notes</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr><td>Provincial dashboard</td><td>Complete</td><td>Main map, advisories, source health, KPI strip.</td></tr>
+            <tr><td>Station health</td><td>Complete</td><td>Health view, map, offline alert ticket automation.</td></tr>
+            <tr><td>Alert composer</td><td>Complete</td><td>CAP field editing and approval flow implemented.</td></tr>
+            <tr><td>Dissemination</td><td>Complete for demo</td><td>Dry-run board and acknowledgement simulation only.</td></tr>
+            <tr><td>Audit trail</td><td>Partial</td><td>Audit view present; PDF post-event report not yet built.</td></tr>
+            <tr><td>Replay mode</td><td>Missing</td><td>No dedicated replay screen or scripted event playback yet.</td></tr>
+            <tr><td>Localization</td><td>Partial</td><td>Urdu fields exist, but app-wide RTL/i18n is not complete.</td></tr>
+            <tr><td>Full source matrix</td><td>Partial</td><td>Several MVP sources are still not integrated.</td></tr>
+          </tbody>
+        </table>
+      </section>
+
+      <section class="card">
+        <h2>Key gaps versus MVP</h2>
+        <div class="workflow">
+          <div class="step missing"><strong>Missing</strong> Google Flood API, GloFAS WMS-T, NDMA scraping, CHIRPS/SPI, NOAA VHI, and replay mode.</div>
+          <div class="step missing"><strong>Missing</strong> App-wide Urdu/RTL layout and next-intl style localization scaffolding.</div>
+          <div class="step missing"><strong>Missing</strong> Dedicated post-event PDF report generator and fully authoritative schema snapshot.</div>
+          <div class="step missing"><strong>Missing</strong> Real external dissemination integrations; current flow is a dry-run simulation.</div>
+        </div>
+      </section>
+    </div>
+
+    <section class="card section page-break">
+      <h2>Current technical flow</h2>
+      <p>
+        The current system works as an operational loop: source feeds and simulations are ingested into Supabase,
+        the dashboard exposes the live picture, station health and hazard layers identify what needs attention,
+        analysts move candidates through CAP approval, dissemination creates delivery rows, acknowledgement updates
+        stream back in realtime, and the audit log records key transitions.
+      </p>
+      <p>
+        In practice, this means the project already demonstrates the core day-to-day workflow of an early warning
+        console, even though the broader MVP still needs the remaining sources, replay mode, and localization work.
+      </p>
+    </section>
+
+    <div class="footer">
+      Generated from the current workspace implementation and the MVP guide. This document is intended as a project
+      progress summary for internal review.
+    </div>
+  </div>
+</body>
+</html>
