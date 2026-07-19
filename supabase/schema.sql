@@ -1,12 +1,5 @@
 -- Nigheban EWS Database Schema Backup
 
--- ⚠ STALE as of 2026-07-18. This dump does not include the Day 5 changes
--- (alert_delivery FK fix + RLS, channel_recipient_count table, Realtime on
--- alert_delivery). See supabase/migrations/20260718_day5_dissemination_ack.sql
--- for the authoritative record of what changed and why.
--- TODO: wire up `npx supabase login` + `npx supabase link` so this file can
--- be regenerated properly via `npx supabase db dump -f supabase/schema.sql`.
-
 -- Table: weather_reading
 CREATE TABLE public."weather_reading" (
   id uuid NOT NULL DEFAULT gen_random_uuid(),
@@ -167,6 +160,15 @@ CREATE TABLE public."scrape_snapshot" (
   fetched_at timestamp with time zone NOT NULL DEFAULT now()
 );
 
+-- Table: channel_recipient_count
+CREATE TABLE public."channel_recipient_count" (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  district_id uuid NOT NULL,
+  channel text NOT NULL,
+  recipient_count integer NOT NULL,
+  is_demo_data boolean NOT NULL DEFAULT true
+);
+
 -- Table: profile
 CREATE TABLE public."profile" (
   id uuid NOT NULL,
@@ -190,6 +192,44 @@ CREATE TABLE public."station_reading" (
   is_simulated boolean NOT NULL DEFAULT true
 );
 
+-- Table: drought_index
+CREATE TABLE public."drought_index" (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  district_id uuid NOT NULL,
+  spi_3 numeric NOT NULL,
+  date date NOT NULL,
+  created_at timestamp with time zone NOT NULL DEFAULT now()
+);
+
+-- Table: glacial_lake
+CREATE TABLE public."glacial_lake" (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  name text NOT NULL,
+  valley text NOT NULL,
+  district_id uuid NULL,
+  hazard_class text NOT NULL,
+  downstream_population integer NULL,
+  geom USER-DEFINED NOT NULL,
+  source text NOT NULL DEFAULT 'UNDP/ICIMOD'::text,
+  created_at timestamp with time zone NOT NULL DEFAULT now()
+);
+
+-- Table: alert_rule
+CREATE TABLE public."alert_rule" (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  metric_name text NOT NULL,
+  district_id uuid NULL,
+  operator text NOT NULL,
+  threshold_value numeric NOT NULL,
+  severity text NOT NULL,
+  title_template text NOT NULL,
+  description_template text NOT NULL,
+  is_active boolean NOT NULL DEFAULT true,
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  is_rate_rule boolean NOT NULL DEFAULT false,
+  rate_time_window_hours integer NULL
+);
+
 -- Table: manual_reading
 CREATE TABLE public."manual_reading" (
   id uuid NOT NULL DEFAULT gen_random_uuid(),
@@ -202,6 +242,36 @@ CREATE TABLE public."manual_reading" (
   entered_by uuid NULL,
   entered_at timestamp with time zone NULL DEFAULT now(),
   notes text NULL
+);
+
+-- Table: alert_candidate
+CREATE TABLE public."alert_candidate" (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  rule_id uuid NULL,
+  district_id uuid NULL,
+  metric_name text NOT NULL,
+  observed_value numeric NOT NULL,
+  threshold_value numeric NOT NULL,
+  severity text NOT NULL,
+  title text NOT NULL,
+  description text NOT NULL,
+  geom USER-DEFINED NULL,
+  starts_at timestamp with time zone NOT NULL,
+  ends_at timestamp with time zone NOT NULL,
+  external_id text NOT NULL,
+  status text NOT NULL DEFAULT 'pending'::text,
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  updated_at timestamp with time zone NOT NULL DEFAULT now(),
+  urgency text NULL,
+  certainty text NULL,
+  event_en text NULL,
+  event_ur text NULL,
+  headline_en text NULL,
+  headline_ur text NULL,
+  instructions_en text NULL,
+  instructions_ur text NULL,
+  issued_by uuid NULL,
+  issued_at timestamp with time zone NULL
 );
 
 -- Table: flood_forecast
@@ -7626,23 +7696,23 @@ CREATE OR REPLACE FUNCTION public.get_districts_geojson()
  RETURNS jsonb
  LANGUAGE sql
  STABLE
-AS $function$
-  select jsonb_build_object(
-    'type', 'FeatureCollection',
-    'features', jsonb_agg(
-      jsonb_build_object(
-        'type', 'Feature',
-        'geometry', ST_AsGeoJSON(geom)::jsonb,
-        'properties', jsonb_build_object(
-          'id', id,
-          'name_en', name_en,
-          'province', province,
-          'adm2_code', adm2_code
-        )
-      )
-    )
-  )
-  from district;
+AS $function$
+  select jsonb_build_object(
+    'type', 'FeatureCollection',
+    'features', jsonb_agg(
+      jsonb_build_object(
+        'type', 'Feature',
+        'geometry', ST_AsGeoJSON(geom)::jsonb,
+        'properties', jsonb_build_object(
+          'id', id,
+          'name_en', name_en,
+          'province', province,
+          'adm2_code', adm2_code
+        )
+      )
+    )
+  )
+  from district;
 $function$
 ;
 
@@ -7651,25 +7721,52 @@ CREATE OR REPLACE FUNCTION public.get_hazard_events_geojson()
  RETURNS jsonb
  LANGUAGE sql
  STABLE
+AS $function$
+  select jsonb_build_object(
+    'type', 'FeatureCollection',
+    'features', jsonb_agg(
+      jsonb_build_object(
+        'type', 'Feature',
+        'geometry', ST_AsGeoJSON(geom)::jsonb,
+        'properties', jsonb_build_object(
+          'id', id,
+          'hazard', hazard,
+          'severity', severity,
+          'title', title,
+          'starts_at', starts_at
+        )
+      )
+    )
+  )
+  from hazard_event
+  where geom is not null;
+$function$
+;
+
+-- Function: get_glacial_lakes_geojson
+CREATE OR REPLACE FUNCTION public.get_glacial_lakes_geojson()
+ RETURNS json
+ LANGUAGE sql
+ STABLE
 AS $function$
-  select jsonb_build_object(
+  SELECT json_build_object(
     'type', 'FeatureCollection',
-    'features', jsonb_agg(
-      jsonb_build_object(
+    'features', COALESCE(json_agg(
+      json_build_object(
         'type', 'Feature',
-        'geometry', ST_AsGeoJSON(geom)::jsonb,
-        'properties', jsonb_build_object(
-          'id', id,
-          'hazard', hazard,
-          'severity', severity,
-          'title', title,
-          'starts_at', starts_at
+        'geometry', ST_AsGeoJSON(gl.geom)::json,
+        'properties', json_build_object(
+          'id', gl.id,
+          'name', gl.name,
+          'valley', gl.valley,
+          'hazard_class', gl.hazard_class,
+          'downstream_population', gl.downstream_population,
+          'source', gl.source
         )
       )
-    )
+    ), '[]'::json)
   )
-  from hazard_event
-  where geom is not null;
+  FROM public.glacial_lake gl;
 $function$
 ;
 
@@ -7678,8 +7775,8 @@ CREATE OR REPLACE FUNCTION public.get_district_lonlat(district_id uuid)
  RETURNS TABLE(lon double precision, lat double precision)
  LANGUAGE sql
  STABLE
-AS $function$
-  select ST_X(centroid), ST_Y(centroid) from district where id = district_id;
+AS $function$
+  select ST_X(centroid), ST_Y(centroid) from district where id = district_id;
 $function$
 ;
 
@@ -7688,14 +7785,678 @@ CREATE OR REPLACE FUNCTION public.get_district_hazards(p_district_id uuid, p_lim
  RETURNS TABLE(id uuid, hazard text, severity text, title text, starts_at timestamp with time zone, source text)
  LANGUAGE sql
  STABLE
+AS $function$
+  select he.id, he.hazard, he.severity, he.title, he.starts_at, he.source
+  from hazard_event he, district d
+  where d.id = p_district_id
+    and he.geom is not null
+    and ST_DWithin(he.geom::geography, d.geom::geography, 50000)
+  order by he.starts_at desc nulls last
+  limit p_limit;
+$function$
+;
+
+-- Function: get_drought_geojson
+CREATE OR REPLACE FUNCTION public.get_drought_geojson()
+ RETURNS json
+ LANGUAGE sql
+ STABLE
 AS $function$
-  select he.id, he.hazard, he.severity, he.title, he.starts_at, he.source
-  from hazard_event he, district d
-  where d.id = p_district_id
-    and he.geom is not null
-    and ST_DWithin(he.geom::geography, d.geom::geography, 50000)
-  order by he.starts_at desc nulls last
-  limit p_limit;
+  SELECT json_build_object(
+    'type', 'FeatureCollection',
+    'features', COALESCE(json_agg(
+      json_build_object(
+        'type', 'Feature',
+        'geometry', ST_AsGeoJSON(d.geom)::json,
+        'properties', json_build_object(
+          'district_id', d.id,
+          'name_en', d.name_en,
+          'province', d.province,
+          'spi_3', di.spi_3,
+          'date', di.date
+        )
+      )
+    ), '[]'::json)
+  )
+  FROM public.district d
+  INNER JOIN LATERAL (
+    SELECT spi_3, date
+    FROM public.drought_index
+    WHERE district_id = d.id
+    ORDER BY date DESC
+    LIMIT 1
+  ) di ON true;
+$function$
+;
+
+-- Function: evaluate_manual_reading
+CREATE OR REPLACE FUNCTION public.evaluate_manual_reading()
+ RETURNS trigger
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+AS $function$
+DECLARE
+    rule RECORD;
+    val NUMERIC;
+    prev_val NUMERIC;
+    geom_val geometry;
+BEGIN
+    IF NEW.value IS NOT NULL AND NEW.reading_type IN ('water_level', 'discharge') THEN
+        FOR rule IN SELECT * FROM public.alert_rule WHERE metric_name = 'water_level' AND is_active = true AND (district_id IS NULL OR district_id = NEW.district_id) ORDER BY threshold_value DESC LOOP
+            IF rule.is_rate_rule THEN
+                SELECT value INTO prev_val FROM public.manual_reading 
+                WHERE station_name = NEW.station_name AND reading_type = NEW.reading_type
+                  AND entered_at >= NEW.entered_at - (rule.rate_time_window_hours || ' hours')::interval AND entered_at < NEW.entered_at
+                ORDER BY entered_at ASC LIMIT 1;
+                IF prev_val IS NOT NULL THEN val := NEW.value - prev_val; ELSE val := NULL; END IF;
+            ELSE
+                val := NEW.value;
+            END IF;
+            
+            IF val IS NOT NULL AND (
+               (rule.operator = '>' AND val > rule.threshold_value) OR
+               (rule.operator = '>=' AND val >= rule.threshold_value) OR
+               (rule.operator = '<' AND val < rule.threshold_value) OR
+               (rule.operator = '<=' AND val <= rule.threshold_value)
+            ) THEN
+                SELECT geom INTO geom_val FROM public.district WHERE id = NEW.district_id LIMIT 1;
+                INSERT INTO public.alert_candidate (
+                    rule_id, district_id, metric_name, observed_value, threshold_value, severity, title, description, geom, starts_at, ends_at, external_id
+                ) VALUES (
+                    rule.id, NEW.district_id, 'water_level', val, rule.threshold_value, rule.severity,
+                    REPLACE(REPLACE(rule.title_template, '{value}', val::text), '{threshold}', rule.threshold_value::text),
+                    REPLACE(REPLACE(rule.description_template, '{value}', val::text), '{threshold}', rule.threshold_value::text),
+                    geom_val, NEW.entered_at, NEW.entered_at + INTERVAL '24 hours', 'manual_water_' || NEW.id::text
+                )
+                ON CONFLICT (external_id) DO UPDATE SET
+                    severity = EXCLUDED.severity, title = EXCLUDED.title, description = EXCLUDED.description, 
+                    observed_value = EXCLUDED.observed_value, status = 'pending';
+                EXIT;
+            END IF;
+        END LOOP;
+    END IF;
+
+    RETURN NEW;
+END;
+$function$
+;
+
+-- Function: update_alert_candidate_updated_at
+CREATE OR REPLACE FUNCTION public.update_alert_candidate_updated_at()
+ RETURNS trigger
+ LANGUAGE plpgsql
+AS $function$
+BEGIN
+    NEW.updated_at = now();
+    RETURN NEW;
+END;
+$function$
+;
+
+-- Function: process_approved_candidate
+CREATE OR REPLACE FUNCTION public.process_approved_candidate()
+ RETURNS trigger
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+AS $function$
+BEGIN
+    IF NEW.status = 'approved' AND OLD.status = 'pending' THEN
+        INSERT INTO public.hazard_event (
+            hazard, source, severity, title, description, geom, district_ids, starts_at, ends_at, external_id
+        ) VALUES (
+            CASE WHEN NEW.metric_name IN ('precipitation', 'temperature') THEN 'weather'
+                 WHEN NEW.metric_name IN ('water_level', 'discharge') THEN 'flood'
+                 ELSE 'weather' END,
+            'Alert Engine', NEW.severity, NEW.title, NEW.description, NEW.geom, 
+            ARRAY[NEW.district_id], NEW.starts_at, NEW.ends_at, NEW.external_id
+        )
+        ON CONFLICT (external_id) DO UPDATE SET
+            severity = EXCLUDED.severity, title = EXCLUDED.title, description = EXCLUDED.description;
+    END IF;
+    RETURN NEW;
+END;
+$function$
+;
+
+-- Function: evaluate_weather_reading
+CREATE OR REPLACE FUNCTION public.evaluate_weather_reading()
+ RETURNS trigger
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+AS $function$
+DECLARE
+    rule RECORD;
+    val NUMERIC;
+    prev_val NUMERIC;
+    geom_val geometry;
+BEGIN
+    -- Evaluate precipitation
+    IF NEW.precipitation IS NOT NULL THEN
+        FOR rule IN SELECT * FROM public.alert_rule WHERE metric_name = 'precipitation' AND is_active = true AND (district_id IS NULL OR district_id = NEW.district_id) ORDER BY threshold_value DESC LOOP
+            IF rule.is_rate_rule THEN
+                SELECT precipitation INTO prev_val FROM public.weather_reading 
+                WHERE district_id = NEW.district_id AND fetched_at >= NEW.fetched_at - (rule.rate_time_window_hours || ' hours')::interval AND fetched_at < NEW.fetched_at
+                ORDER BY fetched_at ASC LIMIT 1;
+                IF prev_val IS NOT NULL THEN val := NEW.precipitation - prev_val; ELSE val := NULL; END IF;
+            ELSE
+                val := NEW.precipitation;
+            END IF;
+            
+            IF val IS NOT NULL AND (
+               (rule.operator = '>' AND val > rule.threshold_value) OR
+               (rule.operator = '>=' AND val >= rule.threshold_value) OR
+               (rule.operator = '<' AND val < rule.threshold_value) OR
+               (rule.operator = '<=' AND val <= rule.threshold_value)
+            ) THEN
+                SELECT geom INTO geom_val FROM public.district WHERE id = NEW.district_id LIMIT 1;
+                INSERT INTO public.alert_candidate (
+                    rule_id, district_id, metric_name, observed_value, threshold_value, severity, title, description, geom, starts_at, ends_at, external_id
+                ) VALUES (
+                    rule.id, NEW.district_id, 'precipitation', val, rule.threshold_value, rule.severity,
+                    REPLACE(REPLACE(rule.title_template, '{value}', val::text), '{threshold}', rule.threshold_value::text),
+                    REPLACE(REPLACE(rule.description_template, '{value}', val::text), '{threshold}', rule.threshold_value::text),
+                    geom_val, NEW.fetched_at, NEW.fetched_at + INTERVAL '24 hours', 'weather_precip_' || NEW.id::text
+                )
+                ON CONFLICT (external_id) DO UPDATE SET
+                    severity = EXCLUDED.severity, title = EXCLUDED.title, description = EXCLUDED.description, 
+                    observed_value = EXCLUDED.observed_value, status = 'pending';
+                EXIT;
+            END IF;
+        END LOOP;
+    END IF;
+
+    -- Evaluate temperature
+    IF NEW.temperature IS NOT NULL THEN
+        FOR rule IN SELECT * FROM public.alert_rule WHERE metric_name = 'temperature' AND is_active = true AND (district_id IS NULL OR district_id = NEW.district_id) ORDER BY threshold_value DESC LOOP
+            IF rule.is_rate_rule THEN
+                SELECT temperature INTO prev_val FROM public.weather_reading 
+                WHERE district_id = NEW.district_id AND fetched_at >= NEW.fetched_at - (rule.rate_time_window_hours || ' hours')::interval AND fetched_at < NEW.fetched_at
+                ORDER BY fetched_at ASC LIMIT 1;
+                IF prev_val IS NOT NULL THEN val := NEW.temperature - prev_val; ELSE val := NULL; END IF;
+            ELSE
+                val := NEW.temperature;
+            END IF;
+            
+            IF val IS NOT NULL AND (
+               (rule.operator = '>' AND val > rule.threshold_value) OR
+               (rule.operator = '>=' AND val >= rule.threshold_value) OR
+               (rule.operator = '<' AND val < rule.threshold_value) OR
+               (rule.operator = '<=' AND val <= rule.threshold_value)
+            ) THEN
+                SELECT geom INTO geom_val FROM public.district WHERE id = NEW.district_id LIMIT 1;
+                INSERT INTO public.alert_candidate (
+                    rule_id, district_id, metric_name, observed_value, threshold_value, severity, title, description, geom, starts_at, ends_at, external_id
+                ) VALUES (
+                    rule.id, NEW.district_id, 'temperature', val, rule.threshold_value, rule.severity,
+                    REPLACE(REPLACE(rule.title_template, '{value}', val::text), '{threshold}', rule.threshold_value::text),
+                    REPLACE(REPLACE(rule.description_template, '{value}', val::text), '{threshold}', rule.threshold_value::text),
+                    geom_val, NEW.fetched_at, NEW.fetched_at + INTERVAL '24 hours', 'weather_temp_' || NEW.id::text
+                )
+                ON CONFLICT (external_id) DO UPDATE SET
+                    severity = EXCLUDED.severity, title = EXCLUDED.title, description = EXCLUDED.description, 
+                    observed_value = EXCLUDED.observed_value, status = 'pending';
+                EXIT;
+            END IF;
+        END LOOP;
+    END IF;
+
+    RETURN NEW;
+END;
+$function$
+;
+
+-- Function: get_district_mask_geojson
+CREATE OR REPLACE FUNCTION public.get_district_mask_geojson()
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+AS $function$
+DECLARE
+    result jsonb;
+BEGIN
+    SELECT ST_AsGeoJSON(
+        ST_Difference(
+            ST_MakeEnvelope(-180, -90, 180, 90, 4326),
+            ST_Union(geom)
+        )
+    )::jsonb INTO result
+    FROM public.district;
+    
+    RETURN result;
+END;
+$function$
+;
+
+-- Function: log_alert_status_change
+CREATE OR REPLACE FUNCTION public.log_alert_status_change()
+ RETURNS trigger
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+AS $function$
+begin
+  if TG_OP = 'UPDATE' and OLD.status is distinct from NEW.status then
+    insert into audit_log (at, actor, actor_role, action, entity, entity_id, detail)
+    values (
+      now(),
+      auth.uid(),
+      (select role::text from profile where id = auth.uid()),
+      'status_change',
+      'alert',
+      NEW.id::text,
+      jsonb_build_object('from', OLD.status, 'to', NEW.status)
+    );
+  elsif TG_OP = 'INSERT' then
+    insert into audit_log (at, actor, actor_role, action, entity, entity_id, detail)
+    values (
+      now(),
+      auth.uid(),
+      (select role::text from profile where id = auth.uid()),
+      'candidate_created',
+      'alert',
+      NEW.id::text,
+      jsonb_build_object('hazard', NEW.hazard, 'source_event', NEW.source_event)
+    );
+  end if;
+  return NEW;
+end;
+$function$
+;
+
+-- Function: evaluate_temperature_threshold
+CREATE OR REPLACE FUNCTION public.evaluate_temperature_threshold()
+ RETURNS trigger
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+AS $function$
+declare
+  v_district_id uuid;
+begin
+  -- Adjust column names below once you confirm your observation/manual_reading table shape
+  if NEW.reading_type = 'temperature' and NEW.value >= 45 then
+    insert into alert (hazard, severity, status, district_ids, cap, source_rule)
+    values (
+      'extreme_heat',
+      'severe',
+      'candidate',
+      array[NEW.district_id],
+      jsonb_build_object(
+        'event_en', 'Extreme Temperature Warning',
+        'event_ur', '',
+        'headline_en', format('Temperature of %s°C recorded', NEW.value),
+        'headline_ur', ''
+      ),
+      null
+    );
+  end if;
+  return NEW;
+end;
+$function$
+;
+
+-- Function: evaluate_manual_reading_alert_rules
+CREATE OR REPLACE FUNCTION public.evaluate_manual_reading_alert_rules()
+ RETURNS trigger
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+AS $function$
+declare
+  r record;
+  v_geom geometry;
+  v_title text;
+  v_description text;
+  v_matches boolean;
+begin
+  for r in
+    select * from alert_rule
+    where is_active = true
+      and is_rate_rule = false
+      and metric_name = NEW.reading_type
+      and (district_id is null or district_id = NEW.district_id)
+  loop
+    v_matches := case r.operator
+      when '>' then NEW.value > r.threshold_value
+      when '>=' then NEW.value >= r.threshold_value
+      when '<' then NEW.value < r.threshold_value
+      when '<=' then NEW.value <= r.threshold_value
+      when '=' then NEW.value = r.threshold_value
+      else false
+    end;
+
+    if v_matches then
+      select geom into v_geom from district where id = NEW.district_id;
+
+      v_title := r.title_template;
+      v_description := replace(r.description_template, '{value}', NEW.value::text);
+
+      insert into alert_candidate (
+        rule_id, district_id, metric_name, observed_value, threshold_value,
+        severity, title, description, geom, starts_at, ends_at, external_id, status
+      )
+      values (
+        r.id, NEW.district_id, r.metric_name, NEW.value, r.threshold_value,
+        r.severity, v_title, v_description, v_geom,
+        now(), now() + interval '24 hours',
+        'manual_' || r.metric_name || '_' || NEW.id::text,
+        'pending'
+      );
+    end if;
+  end loop;
+
+  return NEW;
+end;
+$function$
+;
+
+-- Function: prevent_audit_log_modification
+CREATE OR REPLACE FUNCTION public.prevent_audit_log_modification()
+ RETURNS trigger
+ LANGUAGE plpgsql
+AS $function$
+        BEGIN
+            RAISE EXCEPTION 'audit_log is an append-only table. UPDATE and DELETE are strictly prohibited.';
+            RETURN NULL;
+        END;
+        $function$
+;
+
+-- Function: evaluate_manual_reading_rate_rules
+CREATE OR REPLACE FUNCTION public.evaluate_manual_reading_rate_rules()
+ RETURNS trigger
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+AS $function$
+declare
+  r record;
+  v_past_value numeric;
+  v_delta numeric;
+  v_geom geometry;
+  v_title text;
+  v_description text;
+begin
+  for r in
+    select * from alert_rule
+    where is_active = true
+      and is_rate_rule = true
+      and metric_name = NEW.reading_type
+      and (district_id is null or district_id = NEW.district_id)
+  loop
+    select value into v_past_value
+    from manual_reading
+    where district_id = NEW.district_id
+      and reading_type = NEW.reading_type
+      and entered_at <= NEW.entered_at - (r.rate_time_window_hours || ' hours')::interval
+    order by entered_at desc
+    limit 1;
+
+    if v_past_value is null then
+      continue;
+    end if;
+
+    v_delta := NEW.value - v_past_value;
+
+    if (r.operator = '>' and v_delta > r.threshold_value)
+       or (r.operator = '>=' and v_delta >= r.threshold_value)
+    then
+      select geom into v_geom from district where id = NEW.district_id;
+
+      v_title := r.title_template;
+      v_description := replace(r.description_template, '{value}', round(v_delta,2)::text);
+
+      insert into alert_candidate (
+        rule_id, district_id, metric_name, observed_value, threshold_value,
+        severity, title, description, geom, starts_at, ends_at, external_id, status
+      )
+      values (
+        r.id, NEW.district_id, r.metric_name, NEW.value, r.threshold_value,
+        r.severity, v_title, v_description, v_geom,
+        now(), now() + interval '24 hours',
+        'manual_rate_' || r.id::text || '_' || NEW.id::text,
+        'pending'
+      )
+      on conflict (external_id) do nothing;
+    end if;
+  end loop;
+
+  return NEW;
+end;
+$function$
+;
+
+-- Function: evaluate_station_reading_alert_rules
+CREATE OR REPLACE FUNCTION public.evaluate_station_reading_alert_rules()
+ RETURNS trigger
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+AS $function$
+declare
+  r record;
+  v_district_id uuid;
+  v_geom geometry;
+  v_param_value double precision;
+  v_title text;
+  v_description text;
+  v_matches boolean;
+begin
+  select district_id into v_district_id from station where id = NEW.station_id;
+
+  for r in
+    select * from alert_rule
+    where is_active = true
+      and is_rate_rule = false
+      and (district_id is null or district_id = v_district_id)
+  loop
+    v_param_value := case r.metric_name
+      when 'temperature' then NEW.temperature
+      when 'water_level' then NEW.water_level
+      when 'precipitation' then NEW.rainfall
+      else null
+    end;
+
+    if v_param_value is null then
+      continue;
+    end if;
+
+    v_matches := case r.operator
+      when '>' then v_param_value > r.threshold_value
+      when '>=' then v_param_value >= r.threshold_value
+      when '<' then v_param_value < r.threshold_value
+      when '<=' then v_param_value <= r.threshold_value
+      when '=' then v_param_value = r.threshold_value
+      else false
+    end;
+
+    if v_matches then
+      select geom into v_geom from district where id = v_district_id;
+
+      v_title := r.title_template;
+      v_description := replace(r.description_template, '{value}', v_param_value::text);
+
+      insert into alert_candidate (
+        rule_id, district_id, metric_name, observed_value, threshold_value,
+        severity, title, description, geom, starts_at, ends_at, external_id, status
+      )
+      values (
+        r.id, v_district_id, r.metric_name, v_param_value, r.threshold_value,
+        r.severity, v_title, v_description, v_geom,
+        now(), now() + interval '24 hours',
+        'station_' || r.id::text || '_' || NEW.id::text,
+        'pending'
+      )
+      on conflict (external_id) do nothing;
+    end if;
+  end loop;
+
+  return NEW;
+end;
+$function$
+;
+
+-- Function: evaluate_station_reading_rate_rules
+CREATE OR REPLACE FUNCTION public.evaluate_station_reading_rate_rules()
+ RETURNS trigger
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+AS $function$
+declare
+  r record;
+  v_district_id uuid;
+  v_current_value double precision;
+  v_past_value double precision;
+  v_delta double precision;
+  v_geom geometry;
+  v_title text;
+  v_description text;
+begin
+  select district_id into v_district_id from station where id = NEW.station_id;
+
+  for r in
+    select * from alert_rule
+    where is_active = true
+      and is_rate_rule = true
+      and (district_id is null or district_id = v_district_id)
+  loop
+    v_current_value := case r.metric_name
+      when 'temperature' then NEW.temperature
+      when 'water_level' then NEW.water_level
+      when 'precipitation' then NEW.rainfall
+      else null
+    end;
+
+    if v_current_value is null then
+      continue;
+    end if;
+
+    select case r.metric_name
+      when 'temperature' then temperature
+      when 'water_level' then water_level
+      when 'precipitation' then rainfall
+    end
+    into v_past_value
+    from station_reading
+    where station_id = NEW.station_id
+      and recorded_at <= NEW.recorded_at - (r.rate_time_window_hours || ' hours')::interval
+    order by recorded_at desc
+    limit 1;
+
+    if v_past_value is null then
+      continue;
+    end if;
+
+    v_delta := v_current_value - v_past_value;
+
+    if (r.operator = '>' and v_delta > r.threshold_value)
+       or (r.operator = '>=' and v_delta >= r.threshold_value)
+    then
+      select geom into v_geom from district where id = v_district_id;
+
+      v_title := r.title_template;
+      v_description := replace(r.description_template, '{value}', round(v_delta::numeric,2)::text);
+
+      insert into alert_candidate (
+        rule_id, district_id, metric_name, observed_value, threshold_value,
+        severity, title, description, geom, starts_at, ends_at, external_id, status
+      )
+      values (
+        r.id, v_district_id, r.metric_name, v_current_value, r.threshold_value,
+        r.severity, v_title, v_description, v_geom,
+        now(), now() + interval '24 hours',
+        'station_rate_' || r.id::text || '_' || NEW.id::text,
+        'pending'
+      )
+      on conflict (external_id) do nothing;
+    end if;
+  end loop;
+
+  return NEW;
+end;
+$function$
+;
+
+-- Function: log_alert_candidate_status_change
+CREATE OR REPLACE FUNCTION public.log_alert_candidate_status_change()
+ RETURNS trigger
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+AS $function$
+begin
+  if TG_OP = 'UPDATE' and OLD.status is distinct from NEW.status then
+    insert into audit_log (at, actor, actor_role, action, entity, entity_id, detail)
+    values (
+      now(),
+      auth.uid(),
+      (select role::text from profile where id = auth.uid()),
+      'status_change',
+      'alert_candidate',
+      NEW.id::text,
+      jsonb_build_object('from', OLD.status, 'to', NEW.status)
+    );
+  end if;
+  return NEW;
+end;
+$function$
+;
+
+-- Function: log_alert_candidate_created
+CREATE OR REPLACE FUNCTION public.log_alert_candidate_created()
+ RETURNS trigger
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+AS $function$
+begin
+  insert into audit_log (at, actor, actor_role, action, entity, entity_id, detail)
+  values (
+    now(),
+    null,
+    null,
+    'rule_fired',
+    'alert_candidate',
+    NEW.id::text,
+    jsonb_build_object(
+      'rule_id', NEW.rule_id,
+      'metric_name', NEW.metric_name,
+      'observed_value', NEW.observed_value,
+      'threshold_value', NEW.threshold_value,
+      'severity', NEW.severity,
+      'external_id', NEW.external_id
+    )
+  );
+  return NEW;
+end;
+$function$
+;
+
+-- Function: log_alert_rule_edit
+CREATE OR REPLACE FUNCTION public.log_alert_rule_edit()
+ RETURNS trigger
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+AS $function$
+begin
+  if TG_OP = 'UPDATE' and (
+    OLD.threshold_value is distinct from NEW.threshold_value
+    or OLD.operator is distinct from NEW.operator
+    or OLD.severity is distinct from NEW.severity
+    or OLD.is_active is distinct from NEW.is_active
+    or OLD.rate_time_window_hours is distinct from NEW.rate_time_window_hours
+  ) then
+    insert into audit_log (at, actor, actor_role, action, entity, entity_id, detail)
+    values (
+      now(),
+      auth.uid(),
+      (select role::text from profile where id = auth.uid()),
+      'threshold_edit',
+      'alert_rule',
+      NEW.id::text,
+      jsonb_build_object(
+        'old_threshold', OLD.threshold_value, 'new_threshold', NEW.threshold_value,
+        'old_operator', OLD.operator, 'new_operator', NEW.operator,
+        'old_severity', OLD.severity, 'new_severity', NEW.severity,
+        'old_is_active', OLD.is_active, 'new_is_active', NEW.is_active
+      )
+    );
+  end if;
+  return NEW;
+end;
 $function$
 ;
 
@@ -7710,6 +8471,12 @@ CREATE POLICY "authenticated can read hazard events" ON public."hazard_event"
   AS RESTRICTIVE
   FOR SELECT
   TO public USING ((auth.role() = 'authenticated'::text));
+
+-- RLS Policy on audit_log: Allow authenticated select on audit_log
+CREATE POLICY "Allow authenticated select on audit_log" ON public."audit_log"
+  AS RESTRICTIVE
+  FOR SELECT
+  TO authenticated USING (true);
 
 -- RLS Policy on threshold_rule: duty officers and dg can manage thresholds
 CREATE POLICY "duty officers and dg can manage thresholds" ON public."threshold_rule"
@@ -7730,6 +8497,30 @@ CREATE POLICY "duty officers and dg can create alerts" ON public."alert"
   AS RESTRICTIVE
   FOR INSERT
   TO public WITH CHECK ((EXISTS ( SELECT 1
+   FROM profile
+  WHERE ((profile.id = auth.uid()) AND (profile.role = ANY (ARRAY['duty_officer'::app_role, 'dg'::app_role]))))));
+
+-- RLS Policy on alert_delivery: alert_delivery_insert
+CREATE POLICY "alert_delivery_insert" ON public."alert_delivery"
+  AS RESTRICTIVE
+  FOR INSERT
+  TO public WITH CHECK ((EXISTS ( SELECT 1
+   FROM profile
+  WHERE ((profile.id = auth.uid()) AND (profile.role = ANY (ARRAY['duty_officer'::app_role, 'dg'::app_role]))))));
+
+-- RLS Policy on alert_delivery: alert_delivery_select
+CREATE POLICY "alert_delivery_select" ON public."alert_delivery"
+  AS RESTRICTIVE
+  FOR SELECT
+  TO public USING ((EXISTS ( SELECT 1
+   FROM profile
+  WHERE ((profile.id = auth.uid()) AND ((profile.role = ANY (ARRAY['duty_officer'::app_role, 'dg'::app_role])) OR (profile.district_id = alert_delivery.district_id))))));
+
+-- RLS Policy on alert_delivery: alert_delivery_update
+CREATE POLICY "alert_delivery_update" ON public."alert_delivery"
+  AS RESTRICTIVE
+  FOR UPDATE
+  TO public USING ((EXISTS ( SELECT 1
    FROM profile
   WHERE ((profile.id = auth.uid()) AND (profile.role = ANY (ARRAY['duty_officer'::app_role, 'dg'::app_role]))))));
 
@@ -7769,6 +8560,12 @@ CREATE POLICY "authenticated can read snapshots" ON public."scrape_snapshot"
   FOR SELECT
   TO public USING ((auth.role() = 'authenticated'::text));
 
+-- RLS Policy on channel_recipient_count: channel_recipient_count_select
+CREATE POLICY "channel_recipient_count_select" ON public."channel_recipient_count"
+  AS RESTRICTIVE
+  FOR SELECT
+  TO public USING ((auth.uid() IS NOT NULL));
+
 -- RLS Policy on profile: users read own profile
 CREATE POLICY "users read own profile" ON public."profile"
   AS RESTRICTIVE
@@ -7786,6 +8583,42 @@ CREATE POLICY "station_reading_select_authenticated" ON public."station_reading"
   AS RESTRICTIVE
   FOR SELECT
   TO authenticated USING (true);
+
+-- RLS Policy on drought_index: Allow public read access
+CREATE POLICY "Allow public read access" ON public."drought_index"
+  AS RESTRICTIVE
+  FOR SELECT
+  TO public USING (true);
+
+-- RLS Policy on drought_index: Allow service role full access
+CREATE POLICY "Allow service role full access" ON public."drought_index"
+  AS RESTRICTIVE
+  FOR ALL
+  TO service_role USING (true);
+
+-- RLS Policy on glacial_lake: Allow public read access
+CREATE POLICY "Allow public read access" ON public."glacial_lake"
+  AS RESTRICTIVE
+  FOR SELECT
+  TO public USING (true);
+
+-- RLS Policy on glacial_lake: Allow service role full access
+CREATE POLICY "Allow service role full access" ON public."glacial_lake"
+  AS RESTRICTIVE
+  FOR ALL
+  TO service_role USING (true);
+
+-- RLS Policy on alert_rule: Allow public read access
+CREATE POLICY "Allow public read access" ON public."alert_rule"
+  AS RESTRICTIVE
+  FOR SELECT
+  TO public USING (true);
+
+-- RLS Policy on alert_rule: Allow service role full access
+CREATE POLICY "Allow service role full access" ON public."alert_rule"
+  AS RESTRICTIVE
+  FOR ALL
+  TO service_role USING (true) WITH CHECK (true);
 
 -- RLS Policy on manual_reading: authenticated can read manual readings
 CREATE POLICY "authenticated can read manual readings" ON public."manual_reading"
@@ -7818,3 +8651,21 @@ CREATE POLICY "flood_forecast_update_service_role" ON public."flood_forecast"
   AS RESTRICTIVE
   FOR UPDATE
   TO service_role USING (true);
+
+-- RLS Policy on alert_candidate: Allow authenticated update access
+CREATE POLICY "Allow authenticated update access" ON public."alert_candidate"
+  AS RESTRICTIVE
+  FOR UPDATE
+  TO authenticated USING (true) WITH CHECK (true);
+
+-- RLS Policy on alert_candidate: Allow public read access
+CREATE POLICY "Allow public read access" ON public."alert_candidate"
+  AS RESTRICTIVE
+  FOR SELECT
+  TO public USING (true);
+
+-- RLS Policy on alert_candidate: Allow service role full access
+CREATE POLICY "Allow service role full access" ON public."alert_candidate"
+  AS RESTRICTIVE
+  FOR ALL
+  TO service_role USING (true) WITH CHECK (true);

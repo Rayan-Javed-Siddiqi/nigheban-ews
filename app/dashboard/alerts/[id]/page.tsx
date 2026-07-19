@@ -3,6 +3,19 @@ import { redirect, notFound } from 'next/navigation'
 import Link from 'next/link'
 import { revalidatePath } from 'next/cache'
 import PrintButton from './PrintButton'
+import { z } from 'zod'
+
+const CAPSchema = z.object({
+  event_en: z.string().min(1, "English event name is required"),
+  event_ur: z.string().optional().nullable(),
+  urgency: z.enum(['Immediate', 'Expected', 'Future', 'Past', 'Unknown']).nullable(),
+  certainty: z.enum(['Observed', 'Likely', 'Possible', 'Unlikely', 'Unknown']).nullable(),
+  headline_en: z.string().optional().nullable(),
+  headline_ur: z.string().optional().nullable(),
+  instructions_en: z.string().optional().nullable(),
+  instructions_ur: z.string().optional().nullable(),
+  severity: z.enum(['emergency', 'warning', 'watch', 'advisory']),
+})
 
 const STATUS_FLOW: Record<string, string[]> = {
   pending: ['draft', 'dismissed'],
@@ -25,19 +38,26 @@ async function updateCapFields(formData: FormData) {
     return s && s.trim() !== '' ? s : null
   }
 
+  const rawData = {
+    event_en: formData.get('event_en'),
+    event_ur: formData.get('event_ur'),
+    urgency: emptyToNull(formData.get('urgency')),
+    certainty: emptyToNull(formData.get('certainty')),
+    headline_en: formData.get('headline_en'),
+    headline_ur: formData.get('headline_ur'),
+    instructions_en: formData.get('instructions_en'),
+    instructions_ur: formData.get('instructions_ur'),
+    severity: formData.get('severity'),
+  }
+
+  const parsedData = CAPSchema.safeParse(rawData)
+  if (!parsedData.success) {
+    throw new Error(`Validation failed: ${parsedData.error.message}`)
+  }
+
   const { error } = await supabase
     .from('alert_candidate')
-    .update({
-      event_en: formData.get('event_en'),
-      event_ur: formData.get('event_ur'),
-      urgency: emptyToNull(formData.get('urgency')),
-      certainty: emptyToNull(formData.get('certainty')),
-      headline_en: formData.get('headline_en'),
-      headline_ur: formData.get('headline_ur'),
-      instructions_en: formData.get('instructions_en'),
-      instructions_ur: formData.get('instructions_ur'),
-      severity: formData.get('severity'),
-    })
+    .update(parsedData.data)
     .eq('id', id)
 
   if (error) throw new Error(error.message)
