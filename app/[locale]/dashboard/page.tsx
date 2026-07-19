@@ -1,6 +1,6 @@
 import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
-import DashboardMap from './DashboardMap'
+import DashboardMap from './DashboardMapLoader'
 import SourceHealthFooter from './SourceHealthFooter'
 import AdvisoriesFeed from './AdvisoriesFeed'
 
@@ -10,25 +10,23 @@ export default async function DashboardPage() {
   if (!user) {
     redirect('/login')
   }
-  const { data: profile } = await supabase
-    .from('profile')
-    .select('full_name, role')
-    .eq('id', user.id)
-    .single()
-  const { count: districtCount } = await supabase
-    .from('district')
-    .select('*', { count: 'exact', head: true })
+  // These four queries don't depend on each other's results, so run them
+  // concurrently instead of one at a time — this was previously four
+  // sequential round trips to Supabase before the page could render at all.
+  const [
+    { data: profile },
+    { count: districtCount },
+    { data: issuedAlerts },
+    { data: deliveries },
+  ] = await Promise.all([
+    supabase.from('profile').select('full_name, role').eq('id', user.id).single(),
+    supabase.from('district').select('*', { count: 'exact', head: true }),
+    supabase.from('alert_candidate').select('id, district:district_id(population)').eq('status', 'issued'),
+    supabase.from('alert_delivery').select('status'),
+  ])
 
-  const { data: issuedAlerts } = await supabase
-    .from('alert_candidate')
-    .select('id, district:district_id(population)')
-    .eq('status', 'issued')
   const activeWarnings = issuedAlerts?.length || 0
   const popAffected = issuedAlerts?.reduce((sum: number, a: any) => sum + (a.district?.population || 0), 0) || 0
-
-  const { data: deliveries } = await supabase
-    .from('alert_delivery')
-    .select('status')
   
   const totalDeliveries = deliveries?.length || 0
   const deliveredCount = deliveries?.filter((d: any) => d.status === 'delivered' || d.status === 'acknowledged').length || 0

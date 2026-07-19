@@ -1,5 +1,12 @@
 {
   "crons": [
-    { "path": "/api/ingest/flood-open-meteo", "schedule": "0 0 * * *" }
+    { "path": "/api/ingest/flood-open-meteo", "schedule": "0 0 * * *" },
+    { "path": "/api/ingest/open-meteo",       "schedule": "10 0 * * *" },
+    { "path": "/api/ingest/usgs",             "schedule": "20 0 * * *" },
+    { "path": "/api/ingest/firms",            "schedule": "30 0 * * *" },
+    { "path": "/api/ingest/pmd-snapshot",     "schedule": "40 0 * * *" },
+    { "path": "/api/ingest/irsa",             "schedule": "50 0 * * *" },
+    { "path": "/api/cron/station-health",     "schedule": "0 1 * * *" },
+    { "path": "/api/simulate/stations",       "schedule": "10 1 * * *" }
   ]
 }

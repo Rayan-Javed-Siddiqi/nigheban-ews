@@ -31,6 +31,7 @@ const STATUS_FLOW: Record<string, string[]> = {
 async function updateCapFields(formData: FormData) {
   'use server'
   const id = formData.get('id') as string
+  const locale = (formData.get('locale') as string) || 'en'
   const supabase = await createClient()
 
   const emptyToNull = (v: FormDataEntryValue | null) => {
@@ -79,13 +80,14 @@ async function updateCapFields(formData: FormData) {
     })
   }
 
-  revalidatePath(`/dashboard/alerts/${id}`)
+  revalidatePath(`/${locale}/dashboard/alerts/${id}`)
 }
 
 async function transitionStatus(formData: FormData) {
   'use server'
   const id = formData.get('id') as string
   const newStatus = formData.get('new_status') as string
+  const locale = (formData.get('locale') as string) || 'en'
   const supabase = await createClient()
 
   const { data: { user } } = await supabase.auth.getUser()
@@ -114,7 +116,7 @@ async function transitionStatus(formData: FormData) {
     .eq('id', id)
 
   if (error) throw new Error(error.message)
-  revalidatePath(`/dashboard/alerts/${id}`)
+  revalidatePath(`/${locale}/dashboard/alerts/${id}`)
 }
 
 export default async function AlertComposerPage({
@@ -191,6 +193,7 @@ export default async function AlertComposerPage({
 
         <form action={updateCapFields} className="space-y-4 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-5">
           <input type="hidden" name="id" value={alert.id} />
+          <input type="hidden" name="locale" value={locale} />
 
           <div className="grid grid-cols-2 gap-4">
             <div>
@@ -206,13 +209,10 @@ export default async function AlertComposerPage({
           <div className="grid grid-cols-3 gap-4">
             <div>
               <label className={labelClass}>Severity</label>
-              <select name="severity" defaultValue={alert.severity ?? ''} className={inputClass}>
-                <option value="minor">Minor</option>
-                <option value="moderate">Moderate</option>
-                <option value="severe">Severe</option>
-                <option value="extreme">Extreme</option>
-                <option value="warning">Warning</option>
+              <select name="severity" defaultValue={alert.severity ?? ''} className={inputClass} required>
+                <option value="advisory">Advisory</option>
                 <option value="watch">Watch</option>
+                <option value="warning">Warning</option>
                 <option value="emergency">Emergency</option>
               </select>
             </div>
@@ -220,20 +220,22 @@ export default async function AlertComposerPage({
               <label className={labelClass}>Urgency</label>
               <select name="urgency" defaultValue={alert.urgency ?? ''} className={inputClass}>
                 <option value="">—</option>
-                <option value="immediate">Immediate</option>
-                <option value="expected">Expected</option>
-                <option value="future">Future</option>
-                <option value="past">Past</option>
+                <option value="Immediate">Immediate</option>
+                <option value="Expected">Expected</option>
+                <option value="Future">Future</option>
+                <option value="Past">Past</option>
+                <option value="Unknown">Unknown</option>
               </select>
             </div>
             <div>
               <label className={labelClass}>Certainty</label>
               <select name="certainty" defaultValue={alert.certainty ?? ''} className={inputClass}>
                 <option value="">—</option>
-                <option value="observed">Observed</option>
-                <option value="likely">Likely</option>
-                <option value="possible">Possible</option>
-                <option value="unlikely">Unlikely</option>
+                <option value="Observed">Observed</option>
+                <option value="Likely">Likely</option>
+                <option value="Possible">Possible</option>
+                <option value="Unlikely">Unlikely</option>
+                <option value="Unknown">Unknown</option>
               </select>
             </div>
           </div>
@@ -275,6 +277,7 @@ export default async function AlertComposerPage({
                 <form action={transitionStatus} key={next}>
                   <input type="hidden" name="id" value={alert.id} />
                   <input type="hidden" name="new_status" value={next} />
+                  <input type="hidden" name="locale" value={locale} />
                   <button
                     type="submit"
                     className={`rounded-md px-4 py-2 text-sm font-semibold text-white shadow-sm ${
