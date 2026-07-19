@@ -45,3 +45,6 @@ scripts/import_districts.py
 
 data/boundaries/"scratch/" 
 "CLAUDE_PROJECT_HANDOFF.md" 
+"supabase_backup_data.json" 
+"backup_schema_before_changes.sql" 
+"supabase/.temp/" 
