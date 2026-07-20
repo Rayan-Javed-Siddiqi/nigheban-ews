@@ -1,49 +1,16 @@
-// app/[locale]/dashboard/replay/page.tsx
-//
-// Step 4.4 — Replay Mode: scenario picker + timeline scrubber + playback.
-//
-// This page is intentionally self-contained for now — it reads directly
-// from useReplay() and renders its own readout of the current frame,
-// rather than reusing DashboardMap/AlertsView yet. That wiring (making the
-// real map/alert components branch on isReplaying and render replay data
-// instead of live data) is the next step once this page's data flow is
-// confirmed working end-to-end.
+'use client'
 
-"use client";
-
-import { useEffect } from "react";
-import { useReplay } from "@/lib/replay/ReplayContext";
-
-function formatDuration(totalSeconds: number): string {
-  const h = Math.floor(totalSeconds / 3600);
-  const m = Math.floor((totalSeconds % 3600) / 60);
-  const s = Math.floor(totalSeconds % 60);
-  return `${h}h ${String(m).padStart(2, "0")}m ${String(s).padStart(2, "0")}s`;
-}
-
-const PHASE_LABELS: Record<string, string> = {
-  baseline: "Baseline",
-  rising: "Lake Rising",
-  rate_rule_fired: "Rate Rule Fired",
-  candidate: "Alert Candidate",
-  pending_approval: "Pending Approval",
-  issued: "Issued",
-  disseminating: "Disseminating",
-  acknowledged: "Acknowledged",
-};
-
-const PHASE_COLORS: Record<string, string> = {
-  baseline: "#6b7280",
-  rising: "#d97706",
-  rate_rule_fired: "#dc2626",
-  candidate: "#dc2626",
-  pending_approval: "#ea580c",
-  issued: "#b91c1c",
-  disseminating: "#2563eb",
-  acknowledged: "#16a34a",
-};
+import Link from 'next/link'
+import { useLocale } from 'next-intl'
+import { useRouter } from 'next/navigation'
+import { useReplay } from '@/lib/replay/ReplayContext'
+import { formatReplayDuration } from '@/lib/replay/adapters'
+import { phaseLabel, phaseColor } from '@/lib/replay/labels'
+import { isFloodFrame, isGlofFrame } from '@/lib/replay/types'
 
 export default function ReplayPage() {
+  const locale = useLocale()
+  const router = useRouter()
   const {
     isReplaying,
     scenario,
@@ -52,205 +19,212 @@ export default function ReplayPage() {
     playbackSeconds,
     isPlaying,
     speedMultiplier,
+    scenariosLoadError,
     loadScenario,
     play,
     pause,
     seekToScenarioSeconds,
     setSpeedMultiplier,
     exitReplay,
-  } = useReplay();
+  } = useReplay()
 
-  // Auto-select the Hunza/Shisper scenario if it's the only one published,
-  // so testers don't have to click through a picker for a one-scenario MVP.
-  useEffect(() => {
-    if (!isReplaying && scenarios.length === 1) {
-      loadScenario(scenarios[0].slug);
-    }
-  }, [isReplaying, scenarios, loadScenario]);
+  const launchOnOverview = async (slug: string) => {
+    await loadScenario(slug)
+    router.push(`/${locale}/dashboard`)
+    setTimeout(() => play(), 300)
+  }
 
   if (!isReplaying || !scenario) {
     return (
-      <div style={{ padding: 24, maxWidth: 640 }}>
-        <h1 style={{ fontSize: 20, fontWeight: 600, marginBottom: 16 }}>Replay Mode</h1>
-        {scenarios.length === 0 && (
-          <p style={{ color: "#6b7280" }}>
-            No published scenarios found. Confirm the seed script ran and
-            `replay_scenarios.is_published = true`.
+      <div className="min-h-screen bg-[var(--color-base)]">
+        <header className="border-b border-[var(--color-border)] bg-[var(--color-primary)] px-6 py-4">
+          <Link href={`/${locale}/dashboard`} className="text-sm text-white/70 hover:text-white">
+            ← Provincial Overview
+          </Link>
+          <h1 className="mt-2 text-lg font-semibold text-white">Replay Mode</h1>
+          <p className="text-sm text-white/70">
+            Time-compressed historical scenarios at 60–300× speed for demos and training.
           </p>
-        )}
-        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+        </header>
+
+        <div className="mx-auto max-w-2xl space-y-4 p-6">
+          {scenarios.length === 0 && (
+            <p className="rounded-lg border border-dashed border-[var(--color-border)] p-6 text-sm text-[var(--color-ink)]/50">
+              {scenariosLoadError ? (
+                <>Could not load scenarios: {scenariosLoadError}</>
+              ) : (
+                <>
+                  No published scenarios found. Run{' '}
+                  <code className="font-mono text-xs">python scripts/seed_replay_hunza_shisper.py</code> and{' '}
+                  <code className="font-mono text-xs">python scripts/seed_replay_nowshera_flood.py</code>.
+                </>
+              )}
+            </p>
+          )}
+
           {scenarios.map((s) => (
-            <button
+            <div
               key={s.id}
-              onClick={() => loadScenario(s.slug)}
-              style={{
-                textAlign: "left",
-                padding: "12px 16px",
-                border: "1px solid #d1d5db",
-                borderRadius: 8,
-                background: "white",
-                cursor: "pointer",
-              }}
+              className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-5 shadow-sm"
             >
-              <div style={{ fontWeight: 600 }}>{s.name}</div>
-              <div style={{ fontSize: 13, color: "#6b7280", marginTop: 4 }}>
-                {s.description}
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <h2 className="font-semibold text-[var(--color-ink)]">{s.name}</h2>
+                  <p className="mt-1 text-sm text-[var(--color-ink)]/70">{s.description}</p>
+                  <p className="mt-2 font-mono text-xs text-[var(--color-ink)]/40">
+                    {s.district} · {s.hazard_type} · {formatReplayDuration(s.duration_seconds)} real time ·{' '}
+                    {s.default_speed_multiplier}× default
+                  </p>
+                </div>
               </div>
-              <div style={{ fontSize: 12, color: "#9ca3af", marginTop: 4 }}>
-                {s.district} · {formatDuration(s.duration_seconds)} real time · default {s.default_speed_multiplier}x
+              <div className="mt-4 flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() => loadScenario(s.slug)}
+                  className="rounded-md border border-[var(--color-border)] px-4 py-2 text-sm hover:bg-white"
+                >
+                  Open here
+                </button>
+                <button
+                  type="button"
+                  onClick={() => launchOnOverview(s.slug)}
+                  className="rounded-md bg-[var(--color-primary)] px-4 py-2 text-sm font-semibold text-white hover:bg-[var(--color-primary-hover)]"
+                >
+                  Launch on Overview →
+                </button>
               </div>
-            </button>
+            </div>
           ))}
         </div>
       </div>
-    );
+    )
   }
 
-  const progressPct = (playbackSeconds / scenario.duration_seconds) * 100;
-  const phase = currentFrame?.phase ?? "baseline";
-  const phaseColor = PHASE_COLORS[phase] ?? "#6b7280";
+  const progressPct = (playbackSeconds / scenario.duration_seconds) * 100
+  const phase = currentFrame?.phase ?? 'baseline'
+  const data = currentFrame?.frame_data
 
   return (
-    <div style={{ padding: 24, maxWidth: 900 }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
-        <div>
-          <h1 style={{ fontSize: 20, fontWeight: 600 }}>{scenario.name}</h1>
-          <p style={{ fontSize: 13, color: "#6b7280" }}>{scenario.description}</p>
-        </div>
+    <div className="min-h-screen bg-[var(--color-base)]">
+      <header className="flex items-center gap-4 border-b border-[var(--color-border)] bg-[var(--color-primary)] px-6 py-4">
+        <Link href={`/${locale}/dashboard`} className="text-sm text-white/70 hover:text-white">
+          ← Overview
+        </Link>
+        <h1 className="text-lg font-semibold text-white">{scenario.name}</h1>
         <button
+          type="button"
           onClick={exitReplay}
-          style={{
-            fontSize: 13,
-            padding: "6px 12px",
-            border: "1px solid #d1d5db",
-            borderRadius: 6,
-            background: "white",
-            cursor: "pointer",
-          }}
+          className="ml-auto rounded border border-white/30 px-3 py-1 text-sm text-white hover:bg-white/10"
         >
           Exit Replay
         </button>
-      </div>
+      </header>
 
-      {/* Phase badge + narration */}
-      <div
-        style={{
-          marginTop: 20,
-          padding: 16,
-          borderRadius: 8,
-          background: "#f9fafb",
-          border: `1px solid ${phaseColor}33`,
-        }}
-      >
-        <span
-          style={{
-            display: "inline-block",
-            padding: "2px 10px",
-            borderRadius: 999,
-            fontSize: 12,
-            fontWeight: 600,
-            color: "white",
-            background: phaseColor,
-          }}
+      <div className="mx-auto max-w-3xl space-y-6 p-6">
+        <div
+          className="rounded-lg border bg-[var(--color-surface)] p-5"
+          style={{ borderColor: `${phaseColor(phase)}44` }}
         >
-          {PHASE_LABELS[phase] ?? phase}
-        </span>
-        <p style={{ marginTop: 8, fontSize: 14 }}>{currentFrame?.narration}</p>
-      </div>
-
-      {/* Scrubber */}
-      <div style={{ marginTop: 20 }}>
-        <input
-          type="range"
-          min={0}
-          max={scenario.duration_seconds}
-          step={1}
-          value={playbackSeconds}
-          onChange={(e) => seekToScenarioSeconds(Number(e.target.value))}
-          style={{ width: "100%" }}
-        />
-        <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: "#6b7280" }}>
-          <span>{formatDuration(playbackSeconds)} into scenario</span>
-          <span>{formatDuration(scenario.duration_seconds)} total</span>
+          <span
+            className="inline-block rounded-full px-3 py-0.5 text-xs font-bold uppercase text-white"
+            style={{ backgroundColor: phaseColor(phase) }}
+          >
+            {phaseLabel(phase)}
+          </span>
+          <p className="mt-3 text-sm text-[var(--color-ink)]">{currentFrame?.narration}</p>
         </div>
-      </div>
 
-      {/* Playback controls */}
-      <div style={{ marginTop: 16, display: "flex", alignItems: "center", gap: 12 }}>
-        <button
-          onClick={isPlaying ? pause : play}
-          style={{
-            padding: "8px 20px",
-            borderRadius: 6,
-            border: "none",
-            background: "#111827",
-            color: "white",
-            fontWeight: 600,
-            cursor: "pointer",
-          }}
-        >
-          {isPlaying ? "Pause" : "Play"}
-        </button>
+        <div>
+          <input
+            type="range"
+            min={0}
+            max={scenario.duration_seconds}
+            step={1}
+            value={playbackSeconds}
+            onChange={(e) => seekToScenarioSeconds(Number(e.target.value))}
+            className="w-full accent-[var(--color-primary)]"
+          />
+          <div className="mt-1 flex justify-between text-xs text-[var(--color-ink)]/50">
+            <span>{formatReplayDuration(playbackSeconds)}</span>
+            <span>{formatReplayDuration(scenario.duration_seconds)} total</span>
+          </div>
+        </div>
 
-        <label style={{ fontSize: 13, color: "#6b7280", display: "flex", alignItems: "center", gap: 6 }}>
-          Speed
+        <div className="flex flex-wrap items-center gap-3">
+          <button
+            type="button"
+            onClick={isPlaying ? pause : play}
+            className="rounded-md bg-[var(--color-primary)] px-5 py-2 text-sm font-semibold text-white"
+          >
+            {isPlaying ? 'Pause' : 'Play'}
+          </button>
           <select
             value={speedMultiplier}
             onChange={(e) => setSpeedMultiplier(Number(e.target.value))}
-            style={{ padding: "4px 8px", borderRadius: 4, border: "1px solid #d1d5db" }}
+            className="rounded border border-[var(--color-border)] px-3 py-2 text-sm"
           >
-            <option value={60}>60x</option>
-            <option value={120}>120x</option>
-            <option value={200}>200x</option>
-            <option value={300}>300x</option>
+            <option value={60}>60×</option>
+            <option value={120}>120×</option>
+            <option value={200}>200×</option>
+            <option value={300}>300×</option>
           </select>
-        </label>
+          <span className="text-sm text-[var(--color-ink)]/50">{Math.round(progressPct)}% complete</span>
+          <button
+            type="button"
+            onClick={() => router.push(`/${locale}/dashboard`)}
+            className="ml-auto text-sm text-[var(--color-primary)] underline"
+          >
+            View on map →
+          </button>
+        </div>
 
-        <span style={{ fontSize: 12, color: "#9ca3af" }}>
-          {Math.round(progressPct)}% complete
-        </span>
-      </div>
-
-      {/* Current frame readout — temporary, until wired into real map/alert components */}
-      {currentFrame && (
-        <div style={{ marginTop: 24, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
-          <div style={{ padding: 16, border: "1px solid #e5e7eb", borderRadius: 8 }}>
-            <h2 style={{ fontSize: 14, fontWeight: 600, marginBottom: 8 }}>Station Reading</h2>
-            <dl style={{ fontSize: 13, lineHeight: 1.8 }}>
-              <div>Water level: <strong>{currentFrame.frame_data.station.water_level_m} m</strong></div>
-              <div>Rate of rise: <strong>{currentFrame.frame_data.station.rate_of_rise_m_per_hr} m/hr</strong></div>
-              <div>Battery: {currentFrame.frame_data.station.battery_voltage} V</div>
-              <div>RSSI: {currentFrame.frame_data.station.rssi_dbm} dBm</div>
-              <div>Status: {currentFrame.frame_data.station.status}</div>
-            </dl>
-          </div>
-
-          <div style={{ padding: 16, border: "1px solid #e5e7eb", borderRadius: 8 }}>
-            <h2 style={{ fontSize: 14, fontWeight: 600, marginBottom: 8 }}>Alert</h2>
-            {currentFrame.frame_data.alert ? (
-              <dl style={{ fontSize: 13, lineHeight: 1.8 }}>
-                <div>{currentFrame.frame_data.alert.event}</div>
-                <div>Severity: <strong>{currentFrame.frame_data.alert.severity}</strong></div>
-                <div>Urgency: {currentFrame.frame_data.alert.urgency}</div>
-                <div>Certainty: {currentFrame.frame_data.alert.certainty}</div>
-                <div>Status: {currentFrame.frame_data.alert.status}</div>
-              </dl>
-            ) : (
-              <p style={{ fontSize: 13, color: "#9ca3af" }}>No alert yet.</p>
+        {data && (
+          <div className="grid gap-4 md:grid-cols-2">
+            {isGlofFrame(data) && (
+              <div className="rounded-lg border border-[var(--color-border)] bg-white p-4">
+                <h2 className="mb-2 text-xs font-bold uppercase text-[var(--color-ink)]/50">GLOF Station</h2>
+                <dl className="space-y-1 text-sm">
+                  <div>Water level: <strong>{data.station.water_level_m} m</strong></div>
+                  <div>Rate of rise: <strong>{data.station.rate_of_rise_m_per_hr} m/hr</strong></div>
+                  <div>Battery: {data.station.battery_voltage} V · RSSI {data.station.rssi_dbm} dBm</div>
+                </dl>
+              </div>
             )}
-          </div>
-
-          <div style={{ padding: 16, border: "1px solid #e5e7eb", borderRadius: 8, gridColumn: "1 / -1" }}>
-            <h2 style={{ fontSize: 14, fontWeight: 600, marginBottom: 8 }}>Dissemination</h2>
-            <div style={{ display: "flex", gap: 24, fontSize: 13 }}>
-              <div>Sent: <strong>{currentFrame.frame_data.dissemination.sent}</strong></div>
-              <div>Delivered: <strong>{currentFrame.frame_data.dissemination.delivered}</strong></div>
-              <div>Failed: <strong>{currentFrame.frame_data.dissemination.failed}</strong></div>
-              <div>Acknowledged: <strong>{currentFrame.frame_data.dissemination.acknowledged}</strong></div>
+            {isFloodFrame(data) && (
+              <div className="rounded-lg border border-[var(--color-border)] bg-white p-4">
+                <h2 className="mb-2 text-xs font-bold uppercase text-[var(--color-ink)]/50">River Gauge</h2>
+                <dl className="space-y-1 text-sm">
+                  <div>{data.gauge.name}</div>
+                  <div>Discharge: <strong>{data.gauge.discharge_cusecs.toLocaleString()} cusecs</strong></div>
+                  <div>Level: <strong>{data.gauge.level_m} m</strong></div>
+                  <div>FFD risk: {data.gauge.ffd_risk_level}</div>
+                </dl>
+              </div>
+            )}
+            <div className="rounded-lg border border-[var(--color-border)] bg-white p-4">
+              <h2 className="mb-2 text-xs font-bold uppercase text-[var(--color-ink)]/50">Alert</h2>
+              {data.alert ? (
+                <dl className="space-y-1 text-sm">
+                  <div>{data.alert.event}</div>
+                  <div>Severity: <strong>{data.alert.severity}</strong></div>
+                  <div>Status: {data.alert.status}</div>
+                </dl>
+              ) : (
+                <p className="text-sm text-[var(--color-ink)]/40">No alert yet.</p>
+              )}
+            </div>
+            <div className="rounded-lg border border-[var(--color-border)] bg-white p-4 md:col-span-2">
+              <h2 className="mb-2 text-xs font-bold uppercase text-[var(--color-ink)]/50">Dissemination</h2>
+              <div className="flex flex-wrap gap-6 text-sm font-mono">
+                <span>Sent: {data.dissemination.sent}</span>
+                <span>Delivered: {data.dissemination.delivered}</span>
+                <span>Failed: {data.dissemination.failed}</span>
+                <span>Ack: {data.dissemination.acknowledged}</span>
+              </div>
             </div>
           </div>
-        </div>
-      )}
+        )}
+      </div>
     </div>
-  );
+  )
 }

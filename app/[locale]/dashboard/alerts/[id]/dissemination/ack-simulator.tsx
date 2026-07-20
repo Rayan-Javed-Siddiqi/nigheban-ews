@@ -6,6 +6,7 @@ import { createClient } from '@/lib/supabase/client'
 type DeliveryRow = {
   id: string
   channel: string
+  recipient?: string
   status: string
   status_at: string | null
   ack_at: string | null
@@ -21,6 +22,7 @@ const CHANNEL_LABELS: Record<string, string> = {
 }
 
 const STATUS_STYLES: Record<string, string> = {
+  dry_run: 'bg-slate-500/10 text-slate-600',
   queued: 'bg-[var(--color-primary)]/10 text-[var(--color-primary)]',
   sent: 'bg-amber-500/10 text-amber-600',
   delivered: 'bg-emerald-500/10 text-emerald-600',
@@ -72,7 +74,7 @@ export default function AckSimulator({
   const start = () => {
     setRunning(true)
     tick() // fire one immediately so it doesn't feel like it's stalled
-    intervalRef.current = setInterval(tick, 8000)
+    intervalRef.current = setInterval(tick, 3000)
   }
 
   const stop = () => {
@@ -97,7 +99,12 @@ export default function AckSimulator({
       <div className="space-y-2">
         {deliveries.map((d) => (
           <div key={d.id} className="flex items-center justify-between text-sm">
-            <span>{CHANNEL_LABELS[d.channel] ?? d.channel}</span>
+            <span className="truncate">
+              {CHANNEL_LABELS[d.channel] ?? d.channel}
+              {d.recipient && !d.recipient.startsWith('batch:') && (
+                <span className="ml-2 font-mono text-xs text-[var(--color-ink)]/40">{d.recipient}</span>
+              )}
+            </span>
             <span className="flex items-center gap-2">
               <span className={`rounded-full px-2 py-0.5 font-mono text-xs uppercase ${STATUS_STYLES[d.status] ?? ''}`}>
                 {d.status}

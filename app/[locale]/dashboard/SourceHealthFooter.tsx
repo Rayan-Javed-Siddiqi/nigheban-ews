@@ -14,7 +14,7 @@ export default async function SourceHealthFooter() {
       {sources.map((s) => (
         <span key={s.source} className="flex items-center gap-1.5 whitespace-nowrap font-mono text-[var(--color-ink)]/60">
           <span className={`h-1.5 w-1.5 rounded-full ${s.status === 'ok' ? 'bg-[var(--color-primary-hover)]' : 'bg-[var(--color-emergency)]'}`} />
-          {s.source}
+          {s.source === 'pmd_ffd' ? 'PMD FFD' : s.source}
           {s.last_success_at && (
             <span className="text-[var(--color-ink)]/40">
               {new Date(s.last_success_at).toLocaleTimeString('en-GB', { timeZone: 'Asia/Karachi', hour: '2-digit', minute: '2-digit' })}

@@ -2,9 +2,18 @@ import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
 import DashboardMap from './DashboardMapLoader'
 import SourceHealthFooter from './SourceHealthFooter'
+import HazardConsoleSidebar from './HazardConsoleSidebar'
+import HazardEventsFeed from './HazardEventsFeed'
 import AdvisoriesFeed from './AdvisoriesFeed'
+import ReplayKpiStrip from '@/lib/replay/ReplayKpiStrip'
+import ReplayChrome from '@/lib/replay/ReplayChrome'
 
-export default async function DashboardPage() {
+export default async function DashboardPage({
+  params,
+}: {
+  params: Promise<{ locale: string }>
+}) {
+  const { locale } = await params
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) {
@@ -13,26 +22,43 @@ export default async function DashboardPage() {
   // These four queries don't depend on each other's results, so run them
   // concurrently instead of one at a time — this was previously four
   // sequential round trips to Supabase before the page could render at all.
+  const today = new Date().toISOString().slice(0, 10)
   const [
     { data: profile },
     { count: districtCount },
     { data: issuedAlerts },
-    { data: deliveries },
+    { count: totalDeliveries },
+    { count: deliveredCount },
+    { data: floodAffected },
   ] = await Promise.all([
     supabase.from('profile').select('full_name, role').eq('id', user.id).single(),
     supabase.from('district').select('*', { count: 'exact', head: true }),
-    supabase.from('alert_candidate').select('id, district:district_id(population)').eq('status', 'issued'),
-    supabase.from('alert_delivery').select('status'),
+    supabase.from('alert_candidate').select('id, district_id, district:district_id(population)').eq('status', 'issued'),
+    supabase.from('alert_delivery').select('*', { count: 'exact', head: true }),
+    supabase.from('alert_delivery').select('*', { count: 'exact', head: true }).in('status', ['delivered', 'acknowledged']),
+    supabase
+      .from('flood_forecast')
+      .select('district_id')
+      .in('risk_level', ['high', 'medium'])
+      .gte('forecast_date', today),
   ])
 
   const activeWarnings = issuedAlerts?.length || 0
-  const popAffected = issuedAlerts?.reduce((sum: number, a: any) => sum + (a.district?.population || 0), 0) || 0
+  const popAffected = issuedAlerts?.reduce((sum: number, a: { district?: { population?: number } | null }) => sum + (a.district?.population || 0), 0) || 0
+
+  const affectedDistrictIds = new Set<string>()
+  issuedAlerts?.forEach((a: { district_id?: string | null }) => {
+    if (a.district_id) affectedDistrictIds.add(a.district_id)
+  })
+  floodAffected?.forEach((f: { district_id: string }) => affectedDistrictIds.add(f.district_id))
+  const districtsAffected = affectedDistrictIds.size
   
-  const totalDeliveries = deliveries?.length || 0
-  const deliveredCount = deliveries?.filter((d: any) => d.status === 'delivered' || d.status === 'acknowledged').length || 0
-  const deliveryRate = totalDeliveries > 0 ? Math.round((deliveredCount / totalDeliveries) * 100) : 0
+  const totalDel = totalDeliveries ?? 0
+  const delCount = deliveredCount ?? 0
+  const deliveryRate = totalDel > 0 ? Math.round((delCount / totalDel) * 100) : 0
   return (
     <div className="flex h-screen flex-col bg-[var(--color-base)]">
+      <ReplayChrome />
       {/* Top bar */}
       <header className="flex items-center justify-between border-b border-[var(--color-border)] bg-[var(--color-primary)] px-6 py-3">
         <div className="flex items-center gap-3">
@@ -45,13 +71,16 @@ export default async function DashboardPage() {
           </div>
         </div>
         <div className="flex items-center gap-4">
-          <a href="/dashboard/audit" className="text-sm text-white/80 underline hover:text-white">
+          <a href={`/${locale}/dashboard/replay`} className="text-sm text-amber-200 underline hover:text-white">
+            Replay Mode →
+          </a>
+          <a href={`/${locale}/dashboard/audit`} className="text-sm text-white/80 underline hover:text-white">
             Audit Log →
           </a>
-          <a href="/dashboard/alerts" className="text-sm font-medium text-[var(--color-emergency)] hover:text-red-400">
+          <a href={`/${locale}/dashboard/alerts`} className="text-sm font-medium text-[var(--color-emergency)] hover:text-red-400">
             Review Alerts →
           </a>
-          <a href="/dashboard/stations" className="text-sm text-white/80 underline hover:text-white">
+          <a href={`/${locale}/dashboard/stations`} className="text-sm text-white/80 underline hover:text-white">
             Station Health →
           </a>
           <span className="text-sm text-white/90">
@@ -63,39 +92,16 @@ export default async function DashboardPage() {
         </div>
       </header>
       {/* KPI strip */}
-      <div className="grid grid-cols-4 gap-px border-b border-[var(--color-border)] bg-[var(--color-border)]">
-        <div className="bg-[var(--color-surface)] px-6 py-4">
-          <p className="text-xs font-medium uppercase tracking-wide text-[var(--color-ink)]/50">
-            Active Warnings
-          </p>
-          <p className="mt-1 font-mono text-2xl font-semibold text-[var(--color-emergency)]">{activeWarnings}</p>
-        </div>
-        <div className="bg-[var(--color-surface)] px-6 py-4">
-          <p className="text-xs font-medium uppercase tracking-wide text-[var(--color-ink)]/50">
-            Districts Monitored
-          </p>
-          <p className="mt-1 font-mono text-2xl font-semibold text-[var(--color-ink)]">
-            {districtCount ?? 0}
-          </p>
-        </div>
-        <div className="bg-[var(--color-surface)] px-6 py-4">
-          <p className="text-xs font-medium uppercase tracking-wide text-[var(--color-ink)]/50">
-            Population Affected
-          </p>
-          <p className="mt-1 font-mono text-2xl font-semibold text-[var(--color-ink)]">
-            {popAffected > 0 ? popAffected.toLocaleString() : '—'}
-          </p>
-        </div>
-        <div className="bg-[var(--color-surface)] px-6 py-4">
-          <p className="text-xs font-medium uppercase tracking-wide text-[var(--color-ink)]/50">
-            Delivery Success Rate
-          </p>
-          <p className="mt-1 font-mono text-2xl font-semibold text-[var(--color-ink)]">
-            {totalDeliveries > 0 ? `${deliveryRate}%` : '—'}
-            <span className="ml-2 text-xs text-[var(--color-ink)]/50">({deliveredCount}/{totalDeliveries})</span>
-          </p>
-        </div>
-      </div>
+      <ReplayKpiStrip
+        live={{
+          activeWarnings,
+          districtsAffected: districtsAffected > 0 ? districtsAffected : '—',
+          districtCount: districtCount ?? 0,
+          popAffected,
+          deliveryRate: totalDel > 0 ? `${deliveryRate}%` : '—',
+          deliveryDetail: totalDel > 0 ? `(${delCount}/${totalDel})` : '',
+        }}
+      />
       {/* Source health strip */}
       <SourceHealthFooter />
       {/* Main content: Map and Sidebar */}
@@ -103,7 +109,10 @@ export default async function DashboardPage() {
         <div className="relative flex-1">
           <DashboardMap />
         </div>
-        <AdvisoriesFeed />
+        <HazardConsoleSidebar
+          hazardsPanel={<HazardEventsFeed />}
+          advisoriesPanel={<AdvisoriesFeed />}
+        />
       </div>
     </div>
   )

@@ -24,5 +24,7 @@ export async function GET() {
       },
     }))
 
-  return NextResponse.json({ type: 'FeatureCollection', features })
+  return NextResponse.json({ type: 'FeatureCollection', features }, {
+    headers: { 'Cache-Control': 'public, s-maxage=60, stale-while-revalidate=120' },
+  })
 }

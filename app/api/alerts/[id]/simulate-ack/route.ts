@@ -1,5 +1,6 @@
 import { createClient } from '@/lib/supabase/server'
 import { NextResponse } from 'next/server'
+import { logAudit } from '@/lib/audit'
 
 // Simple state machine: queued -> sent -> (delivered | failed) -> acknowledged
 // failed is terminal. acknowledged is terminal. Only delivered rows can become acknowledged.
@@ -70,7 +71,7 @@ export async function POST(
     .single()
 
   if (hasAcks) {
-    await supabase.from('audit_log').insert({
+    await logAudit(supabase, {
       action: 'acknowledgement_received',
       entity: 'alert_candidate',
       entity_id: alertId,
@@ -88,7 +89,7 @@ export async function POST(
       .eq('action', 'dissemination_completed')
     
     if (!existing || existing.length === 0) {
-      await supabase.from('audit_log').insert({
+      await logAudit(supabase, {
         action: 'dissemination_completed',
         entity: 'alert_candidate',
         entity_id: alertId,

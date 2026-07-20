@@ -1,34 +1,70 @@
 import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
 import StationHealthMapClient from './StationHealthMapClient'
+import StationHealthRollup from './StationHealthRollup'
+import StationHealthClient from './StationHealthClient'
+import type { StationHealthRow } from '@/lib/station-health'
 
 export default async function StationHealthPage() {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/login')
 
-  const { data: stations } = await supabase
-    .from('station_health')
-    .select('station_id, name, kind, district_id, status, battery_voltage, last_transmission_at, rssi')
-    .order('name')
+  const [{ data: healthRows }, { data: stationMeta }, { data: tickets }] = await Promise.all([
+    supabase
+      .from('station_health')
+      .select(
+        'station_id, name, kind, status, battery_voltage, last_transmission_at, rssi'
+      )
+      .order('name'),
+    supabase
+      .from('station')
+      .select('id, valley, district_id, source, is_simulated, district:district_id(name_en)'),
+    supabase
+      .from('maintenance_ticket')
+      .select('id, station_id, reason, status, created_at')
+      .order('created_at', { ascending: false })
+      .limit(50),
+  ])
 
-  const total = stations?.length ?? 0
-  const offlineCount = stations?.filter((s) => s.status === 'offline').length ?? 0
-  const reportingCount = total - offlineCount
-  const lowBatteryCount =
-    stations?.filter((s) => s.battery_voltage != null && s.battery_voltage < 11.0).length ?? 0
+  const metaById = new Map(
+    (stationMeta ?? []).map((s) => [
+      s.id,
+      {
+        valley: s.valley as string | null,
+        district_id: s.district_id as string | null,
+        district_name: (s.district as { name_en: string } | null)?.name_en ?? null,
+        source: s.source as string,
+        is_simulated: s.is_simulated as boolean,
+      },
+    ])
+  )
 
-  function batteryPercent(v: number | null) {
-    if (v == null) return 0
-    const pct = ((v - 9.0) / (12.6 - 9.0)) * 100
-    return Math.max(0, Math.min(100, Math.round(pct)))
-  }
+  const stationRows: StationHealthRow[] = (healthRows ?? []).map((h) => {
+    const meta = metaById.get(h.station_id)
+    return {
+      station_id: h.station_id,
+      name: h.name,
+      kind: h.kind,
+      status: h.status as StationHealthRow['status'],
+      battery_voltage: h.battery_voltage,
+      last_transmission_at: h.last_transmission_at,
+      rssi: h.rssi,
+      valley: meta?.valley ?? null,
+      district_id: meta?.district_id ?? null,
+      district_name: meta?.district_name ?? null,
+      source: meta?.source ?? 'unknown',
+      is_simulated: meta?.is_simulated ?? false,
+    }
+  })
+  const stationNameById = new Map(stationRows.map((s) => [s.station_id, s.name]))
 
-  function statusBadgeClass(status: string) {
-    if (status === 'online') return 'bg-[var(--color-primary-hover)]/15 text-[var(--color-primary-hover)]'
-    if (status === 'degraded') return 'bg-[#E0A030]/15 text-[#E0A030]'
-    return 'bg-[var(--color-emergency)]/15 text-[var(--color-emergency)]'
-  }
+  const ticketsWithNames = (tickets ?? []).map((t) => ({
+    ...t,
+    station_name: t.station_id ? stationNameById.get(t.station_id) : undefined,
+  }))
+
+  const openTicketCount = ticketsWithNames.filter((t) => t.status === 'open').length
 
   return (
     <div className="min-h-screen bg-[var(--color-base)]">
@@ -37,66 +73,19 @@ export default async function StationHealthPage() {
           ← Provincial Overview
         </a>
         <h1 className="mt-1 text-xl font-semibold text-white">Station Health</h1>
-        <p className="text-sm text-white/70">{reportingCount}/{total} Reporting</p>
+        <p className="text-sm text-white/70">
+          GLOF-II field network · simulated + virtual gauges · maintenance auto-tickets at 24h offline
+        </p>
       </header>
 
-      <div className="grid grid-cols-3 gap-4 p-6">
-        <div className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-4">
-          <p className="text-xs uppercase text-[var(--color-ink)]/50">Reporting</p>
-          <p className="text-2xl font-semibold">{reportingCount}/{total}</p>
-        </div>
-        <div className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-4">
-          <p className="text-xs uppercase text-[var(--color-ink)]/50">Offline</p>
-          <p className="text-2xl font-semibold text-[var(--color-emergency)]">{offlineCount}</p>
-        </div>
-        <div className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-4">
-          <p className="text-xs uppercase text-[var(--color-ink)]/50">Low Battery</p>
-          <p className="text-2xl font-semibold text-[#E0A030]">{lowBatteryCount}</p>
-        </div>
-      </div>
+      <div className="space-y-6 p-6">
+        <StationHealthRollup stations={stationRows} openTicketCount={openTicketCount} />
 
-      <div className="mx-6 h-[420px] overflow-hidden rounded-lg border border-[var(--color-border)]">
-        <StationHealthMapClient />
-      </div>
-
-      <div className="p-6">
-        <div className="overflow-hidden rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)]">
-          <table className="w-full text-sm">
-            <thead className="bg-[var(--color-base)] text-left text-xs uppercase text-[var(--color-ink)]/50">
-              <tr>
-                <th className="px-4 py-2">Station</th>
-                <th className="px-4 py-2">Status</th>
-                <th className="px-4 py-2">Battery</th>
-                <th className="px-4 py-2">Last Transmission</th>
-              </tr>
-            </thead>
-            <tbody>
-              {(stations ?? []).map((s) => (
-                <tr key={s.station_id} className="border-t border-[var(--color-border)]">
-                  <td className="px-4 py-2">{s.name}</td>
-                  <td className="px-4 py-2">
-                    <span className={`rounded-full px-2 py-0.5 text-xs font-mono uppercase ${statusBadgeClass(s.status)}`}>
-                      {s.status}
-                    </span>
-                  </td>
-                  <td className="px-4 py-2">
-                    <div className="h-2 w-24 rounded-full bg-[var(--color-border)]">
-                      <div
-                        className="h-2 rounded-full bg-[var(--color-primary-hover)]"
-                        style={{ width: `${batteryPercent(s.battery_voltage)}%` }}
-                      />
-                    </div>
-                  </td>
-                  <td className="px-4 py-2 font-mono text-xs text-[var(--color-ink)]/60">
-                    {s.last_transmission_at
-                      ? new Date(s.last_transmission_at).toLocaleString('en-GB', { timeZone: 'Asia/Karachi' })
-                      : 'Never'}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+        <div className="h-[420px] overflow-hidden rounded-lg border border-[var(--color-border)]">
+          <StationHealthMapClient />
         </div>
+
+        <StationHealthClient stations={stationRows} tickets={ticketsWithNames} />
       </div>
     </div>
   )

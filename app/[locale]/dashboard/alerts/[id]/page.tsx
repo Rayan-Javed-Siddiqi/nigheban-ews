@@ -3,30 +3,29 @@ import { redirect, notFound } from 'next/navigation'
 import Link from 'next/link'
 import { revalidatePath } from 'next/cache'
 import PrintButton from './PrintButton'
+import AuditTimeline from './AuditTimeline'
+import { logAudit, type AuditLogRow } from '@/lib/audit'
 import { z } from 'zod'
+import {
+  getAllowedTransitions,
+  canEscalate,
+  canTransition,
+  escalateSeverity,
+  workflowButtonLabel,
+  type AppRole,
+} from '@/lib/alert-workflow'
 
 const CAPSchema = z.object({
-  event_en: z.string().min(1, "English event name is required"),
+  event_en: z.string().min(1, 'English event name is required'),
   event_ur: z.string().optional().nullable(),
-  urgency: z.enum(['Immediate', 'Expected', 'Future', 'Past', 'Unknown']).nullable(),
-  certainty: z.enum(['Observed', 'Likely', 'Possible', 'Unlikely', 'Unknown']).nullable(),
+  urgency: z.enum(['immediate', 'expected', 'future', 'past']).nullable(),
+  certainty: z.enum(['observed', 'likely', 'possible', 'unlikely']).nullable(),
   headline_en: z.string().optional().nullable(),
   headline_ur: z.string().optional().nullable(),
   instructions_en: z.string().optional().nullable(),
   instructions_ur: z.string().optional().nullable(),
   severity: z.enum(['emergency', 'warning', 'watch', 'advisory']),
 })
-
-const STATUS_FLOW: Record<string, string[]> = {
-  pending: ['draft', 'dismissed'],
-  draft: ['pending_approval', 'dismissed'],
-  pending_approval: ['issued', 'draft', 'cancelled'],
-  issued: ['cancelled', 'expired'],
-  approved: ['issued'],
-  dismissed: [],
-  cancelled: [],
-  expired: [],
-}
 
 async function updateCapFields(formData: FormData) {
   'use server'
@@ -56,22 +55,13 @@ async function updateCapFields(formData: FormData) {
     throw new Error(`Validation failed: ${parsedData.error.message}`)
   }
 
-  const { error } = await supabase
-    .from('alert_candidate')
-    .update(parsedData.data)
-    .eq('id', id)
-
+  const { error } = await supabase.from('alert_candidate').update(parsedData.data).eq('id', id)
   if (error) throw new Error(error.message)
 
   const { data: { user } } = await supabase.auth.getUser()
   if (user) {
-    const { data: profile } = await supabase
-      .from('profile')
-      .select('role')
-      .eq('id', user.id)
-      .single()
-
-    await supabase.from('audit_log').insert({
+    const { data: profile } = await supabase.from('profile').select('role').eq('id', user.id).single()
+    await logAudit(supabase, {
       action: 'edit_cap_fields',
       entity: 'alert_candidate',
       entity_id: id,
@@ -93,15 +83,14 @@ async function transitionStatus(formData: FormData) {
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) throw new Error('Not authenticated')
 
-  const { data: profile } = await supabase
-    .from('profile')
-    .select('role')
-    .eq('id', user.id)
-    .single()
+  const { data: profile } = await supabase.from('profile').select('role').eq('id', user.id).single()
+  const role = profile?.role as AppRole | undefined
 
-  // Server-side role enforcement — never trust the client for this
-  if (newStatus === 'issued' && profile?.role !== 'duty_officer' && profile?.role !== 'dg') {
-    throw new Error('Only a Duty Officer or DG can issue an alert')
+  const { data: current } = await supabase.from('alert_candidate').select('status').eq('id', id).single()
+  if (!current) throw new Error('Alert not found')
+
+  if (!canTransition(role, current.status, newStatus)) {
+    throw new Error(`Role ${role ?? 'unknown'} cannot move ${current.status} → ${newStatus}`)
   }
 
   const updates: Record<string, unknown> = { status: newStatus }
@@ -110,23 +99,71 @@ async function transitionStatus(formData: FormData) {
     updates.issued_at = new Date().toISOString()
   }
 
-  const { error } = await supabase
-    .from('alert_candidate')
-    .update(updates)
-    .eq('id', id)
-
+  const { error } = await supabase.from('alert_candidate').update(updates).eq('id', id)
   if (error) throw new Error(error.message)
+
+  if (newStatus === 'issued') {
+    const { data: alertRow } = await supabase
+      .from('alert_candidate')
+      .select('district_id')
+      .eq('id', id)
+      .single()
+    if (alertRow?.district_id) {
+      const { fanOutOnIssue } = await import('./dissemination-actions')
+      await fanOutOnIssue(id, alertRow.district_id, locale)
+    }
+  }
+
+  revalidatePath(`/${locale}/dashboard/alerts/${id}`)
+  revalidatePath(`/${locale}/dashboard/alerts`)
+}
+
+async function escalateAlertSeverity(formData: FormData) {
+  'use server'
+  const id = formData.get('id') as string
+  const locale = (formData.get('locale') as string) || 'en'
+  const supabase = await createClient()
+
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) throw new Error('Not authenticated')
+
+  const { data: profile } = await supabase.from('profile').select('role').eq('id', user.id).single()
+  const role = profile?.role as AppRole | undefined
+
+  const { data: alert } = await supabase.from('alert_candidate').select('severity, status').eq('id', id).single()
+  if (!alert) throw new Error('Alert not found')
+  if (!canEscalate(role, alert.status)) throw new Error('Cannot escalate in current state')
+
+  const next = escalateSeverity(alert.severity)
+  if (!next) throw new Error('Already at maximum severity')
+
+  const { error } = await supabase.from('alert_candidate').update({ severity: next }).eq('id', id)
+  if (error) throw new Error(error.message)
+
+  await logAudit(supabase, {
+    action: 'escalate_severity',
+    entity: 'alert_candidate',
+    entity_id: id,
+    actor: user.id,
+    actor_role: profile?.role || 'viewer',
+    detail: { from: alert.severity, to: next },
+  })
+
   revalidatePath(`/${locale}/dashboard/alerts/${id}`)
 }
 
 export default async function AlertComposerPage({
   params,
-}: {    params: Promise<{ id: string, locale: string }>
+}: {
+  params: Promise<{ id: string; locale: string }>
 }) {
   const { id, locale } = await params
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
-  if (!user) redirect('/login')
+  if (!user) redirect(`/${locale}/login`)
+
+  const { data: profile } = await supabase.from('profile').select('role').eq('id', user.id).single()
+  const role = profile?.role as AppRole | undefined
 
   const { data: alert } = await supabase
     .from('alert_candidate')
@@ -142,53 +179,83 @@ export default async function AlertComposerPage({
     .eq('entity_id', id)
     .order('at', { ascending: true })
 
-  let deliveryStats = null
-  if (alert.status === 'issued') {
-    const { data: deliveries } = await supabase
-      .from('alert_delivery')
-      .select('status')
-      .eq('alert_id', id)
-      
-    if (deliveries) {
+  let deliveryStats: {
+    total: number
+    queued: number
+    sent: number
+    delivered: number
+    failed: number
+    acknowledged: number
+    ackRate: number
+  } | null = null
+  if (alert.status === 'issued' || alert.status === 'cancelled') {
+    const { data: deliveries } = await supabase.from('alert_delivery').select('status').eq('alert_id', id)
+    if (deliveries && deliveries.length > 0) {
+      const acknowledged = deliveries.filter((d) => d.status === 'acknowledged').length
       deliveryStats = {
         total: deliveries.length,
-        queued: deliveries.filter((d: any) => d.status === 'queued').length,
-        sent: deliveries.filter((d: any) => d.status === 'sent').length,
-        delivered: deliveries.filter((d: any) => d.status === 'delivered').length,
-        failed: deliveries.filter((d: any) => d.status === 'failed').length,
-        acknowledged: deliveries.filter((d: any) => d.status === 'acknowledged').length,
+        queued: deliveries.filter((d) => d.status === 'queued').length,
+        sent: deliveries.filter((d) => d.status === 'sent').length,
+        delivered: deliveries.filter((d) => d.status === 'delivered').length,
+        failed: deliveries.filter((d) => d.status === 'failed').length,
+        acknowledged,
+        ackRate: Math.round((acknowledged / deliveries.length) * 100),
       }
     }
   }
 
-  const allowedNext = STATUS_FLOW[alert.status] ?? []
-  const inputClass = "w-full rounded-md border border-[var(--color-border)] px-3 py-2 text-sm"
-  const labelClass = "mb-1 block text-xs font-semibold uppercase tracking-wide text-[var(--color-ink)]/60"
+  const actorIds = [...new Set((auditLogs ?? []).map((l) => l.actor).filter(Boolean))] as string[]
+  const actorNames: Record<string, string> = {}
+  if (actorIds.length > 0) {
+    const { data: actors } = await supabase.from('profile').select('id, full_name').in('id', actorIds)
+    for (const a of actors ?? []) {
+      if (a.full_name) actorNames[a.id] = a.full_name
+    }
+  }
+
+  const allowedNext = getAllowedTransitions(role, alert.status)
+  const primaryAction = allowedNext.find((s) => s === 'issued') ?? allowedNext[0]
+  const secondaryActions = allowedNext.filter((s) => s !== primaryAction)
+  const nextSeverity = escalateSeverity(alert.severity)
+  const showEscalate = canEscalate(role, alert.status) && nextSeverity !== null
+
+  const inputClass = 'w-full rounded-md border border-[var(--color-border)] px-3 py-2 text-sm'
+  const labelClass = 'mb-1 block text-xs font-semibold uppercase tracking-wide text-[var(--color-ink)]/60'
+  const capExportable = alert.status === 'issued' || alert.status === 'cancelled'
 
   return (
     <div className="min-h-screen bg-[var(--color-base)]">
       <header className="print:hidden flex items-center gap-4 border-b border-[var(--color-border)] bg-[var(--color-primary)] px-6 py-4">
-        <Link href="/dashboard/alerts" className="text-sm text-white/70 hover:text-white">
+        <Link href={`/${locale}/dashboard/alerts`} className="text-sm text-white/70 hover:text-white">
           ← Alert Review
         </Link>
         <h1 className="text-lg font-semibold text-white">CAP Composer</h1>
         <span className="ml-4 rounded-full bg-white/10 px-3 py-1 font-mono text-xs uppercase text-white">
           {alert.status}
         </span>
-        <PrintButton alertId={alert.id} locale={locale} />
+        {role && (
+          <span className="rounded-full bg-white/5 px-3 py-1 font-mono text-xs uppercase text-white/70">
+            {role.replace('_', ' ')}
+          </span>
+        )}
+        <PrintButton alertId={alert.id} locale={locale} disabled={!capExportable} />
       </header>
 
-      <div className="mx-auto max-w-3xl p-6 space-y-6">
+      <div className="mx-auto max-w-3xl space-y-6 p-6">
         <div className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-5">
-          <h2 className="mb-2 text-sm font-semibold uppercase tracking-wide text-[var(--color-ink)]/60">
-            Source
-          </h2>
+          <h2 className="mb-2 text-sm font-semibold uppercase tracking-wide text-[var(--color-ink)]/60">Source</h2>
           <p className="text-sm text-[var(--color-ink)]">
             {alert.title} — {alert.district ? `${alert.district.name_en}, ${alert.district.province}` : 'Global'}
           </p>
           <p className="mt-1 text-xs text-[var(--color-ink)]/50">
             Metric: {alert.metric_name} · Observed: {alert.observed_value} · Threshold: {alert.threshold_value}
           </p>
+          {alert.event_en && (
+            <p className="mt-2 text-xs text-[var(--color-ink)]/60">
+              CAP pre-filled: {alert.event_en}
+              {alert.urgency ? ` · urgency ${alert.urgency}` : ''}
+            </p>
+          )}
         </div>
 
         <form action={updateCapFields} className="space-y-4 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-5">
@@ -220,22 +287,20 @@ export default async function AlertComposerPage({
               <label className={labelClass}>Urgency</label>
               <select name="urgency" defaultValue={alert.urgency ?? ''} className={inputClass}>
                 <option value="">—</option>
-                <option value="Immediate">Immediate</option>
-                <option value="Expected">Expected</option>
-                <option value="Future">Future</option>
-                <option value="Past">Past</option>
-                <option value="Unknown">Unknown</option>
+                <option value="immediate">Immediate</option>
+                <option value="expected">Expected</option>
+                <option value="future">Future</option>
+                <option value="past">Past</option>
               </select>
             </div>
             <div>
               <label className={labelClass}>Certainty</label>
               <select name="certainty" defaultValue={alert.certainty ?? ''} className={inputClass}>
                 <option value="">—</option>
-                <option value="Observed">Observed</option>
-                <option value="Likely">Likely</option>
-                <option value="Possible">Possible</option>
-                <option value="Unlikely">Unlikely</option>
-                <option value="Unknown">Unknown</option>
+                <option value="observed">Observed</option>
+                <option value="likely">Likely</option>
+                <option value="possible">Possible</option>
+                <option value="unlikely">Unlikely</option>
               </select>
             </div>
           </div>
@@ -262,109 +327,138 @@ export default async function AlertComposerPage({
             </div>
           </div>
 
-          <button type="submit" className="rounded-md bg-[var(--color-primary)] px-4 py-2 text-sm text-white hover:bg-[var(--color-primary-hover)]">
-            Save CAP Fields
-          </button>
+          {(role === 'duty_officer' || role === 'dg') && (
+            <button type="submit" className="rounded-md bg-[var(--color-primary)] px-4 py-2 text-sm text-white hover:bg-[var(--color-primary-hover)]">
+              Save CAP Fields
+            </button>
+          )}
         </form>
 
-        {allowedNext.length > 0 && (
+        {(allowedNext.length > 0 || showEscalate) && (
           <div className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-5">
-            <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-[var(--color-ink)]/60">
-              Workflow
-            </h2>
+            <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-[var(--color-ink)]/60">Workflow</h2>
+            {alert.status === 'pending_approval' && role === 'dg' && (
+              <p className="mb-3 text-sm text-[var(--color-ink)]/70">
+                This alert is ready for your approval. Click <strong>Issue alert</strong> to publish the CAP warning.
+              </p>
+            )}
+            {alert.status === 'pending_approval' && role !== 'dg' && (
+              <p className="mb-3 text-sm text-amber-800">
+                Submitted for DG approval. Your role is <strong>{role ?? 'unknown'}</strong> — only DG can issue.
+              </p>
+            )}
+            {alert.status === 'draft' && role === 'dg' && (
+              <p className="mb-3 text-sm text-[var(--color-ink)]/70">
+                As DG you can <strong>Issue alert</strong> directly, or submit for approval if another DG must sign off.
+              </p>
+            )}
             <div className="flex flex-wrap gap-3">
-              {allowedNext.map((next) => (
+              {primaryAction && (
+                <form action={transitionStatus}>
+                  <input type="hidden" name="id" value={alert.id} />
+                  <input type="hidden" name="new_status" value={primaryAction} />
+                  <input type="hidden" name="locale" value={locale} />
+                  <button
+                    type="submit"
+                    className={`rounded-md px-4 py-2 text-sm font-semibold text-white shadow-sm ${
+                      primaryAction === 'issued'
+                        ? 'bg-[var(--color-emergency)] hover:bg-red-700'
+                        : 'bg-[var(--color-primary)] hover:bg-[var(--color-primary-hover)]'
+                    }`}
+                  >
+                    {workflowButtonLabel(alert.status, primaryAction)}
+                  </button>
+                </form>
+              )}
+              {secondaryActions.map((next) => (
                 <form action={transitionStatus} key={next}>
                   <input type="hidden" name="id" value={alert.id} />
                   <input type="hidden" name="new_status" value={next} />
                   <input type="hidden" name="locale" value={locale} />
                   <button
                     type="submit"
-                    className={`rounded-md px-4 py-2 text-sm font-semibold text-white shadow-sm ${
-                      next === 'issued' ? 'bg-[var(--color-emergency)] hover:bg-red-700' : 'bg-[var(--color-primary)] hover:bg-[var(--color-primary-hover)]'
+                    className={`rounded-md px-4 py-2 text-sm font-semibold shadow-sm ${
+                      next === 'cancelled' || next === 'dismissed'
+                        ? 'border border-[var(--color-border)] bg-transparent text-[var(--color-ink)] hover:bg-[var(--color-border)]'
+                        : 'bg-[var(--color-primary)] text-white hover:bg-[var(--color-primary-hover)]'
                     }`}
                   >
-                    Move to {next.replace('_', ' ')}
+                    {workflowButtonLabel(alert.status, next)}
                   </button>
                 </form>
               ))}
+              {showEscalate && (
+                <form action={escalateAlertSeverity}>
+                  <input type="hidden" name="id" value={alert.id} />
+                  <input type="hidden" name="locale" value={locale} />
+                  <button
+                    type="submit"
+                    className="rounded-md border-2 border-[var(--color-emergency)] bg-transparent px-4 py-2 text-sm font-semibold text-[var(--color-emergency)] hover:bg-[var(--color-emergency)]/10"
+                  >
+                    Escalate to {nextSeverity}
+                  </button>
+                </form>
+              )}
             </div>
           </div>
         )}
 
-        {alert.status === 'issued' && (
-          <div className="flex gap-3">
-            <a href={`/dashboard/alerts/${alert.id}/dissemination`}
-              className="rounded-md bg-[var(--color-emergency)] px-4 py-2 text-sm font-semibold text-white hover:bg-red-700"
-            >
-              Dissemination Board
-            </a>
-
-              <a href={`/api/alerts/${alert.id}/cap.json`}
+        {capExportable && (
+          <div className="flex flex-wrap gap-3">
+            {alert.status === 'issued' && (
+              <Link
+                href={`/${locale}/dashboard/alerts/${alert.id}/dissemination`}
+                className="rounded-md bg-[var(--color-emergency)] px-4 py-2 text-sm font-semibold text-white hover:bg-red-700"
+              >
+                Dissemination Board
+              </Link>
+            )}
+            <a
+              href={`/api/alerts/${alert.id}/cap.json`}
               target="_blank"
               className="rounded-md border border-[var(--color-border)] px-4 py-2 text-sm hover:bg-[var(--color-border)]"
             >
               View CAP JSON
             </a>
-            
-              <a href={`/api/alerts/${alert.id}/cap.xml`}
+            <a
+              href={`/api/alerts/${alert.id}/cap.xml`}
               target="_blank"
               className="rounded-md border border-[var(--color-border)] px-4 py-2 text-sm hover:bg-[var(--color-border)]"
             >
-              View CAP XML
+              View CAP XML{alert.status === 'cancelled' ? ' (Cancel)' : ''}
             </a>
           </div>
         )}
 
-        {alert.status === 'issued' && deliveryStats && (
+        {(alert.status === 'issued' || alert.status === 'cancelled') && deliveryStats && (
           <div className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-5">
             <h2 className="mb-4 text-sm font-semibold uppercase tracking-wide text-[var(--color-ink)]/60">
               Delivery &amp; Acknowledgement Statistics
             </h2>
-            <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
-              <div className="rounded bg-white border border-[var(--color-border)] p-3 shadow-sm text-center">
-                <div className="text-2xl font-mono font-bold text-[var(--color-ink)]">{deliveryStats.total}</div>
-                <div className="text-xs uppercase font-semibold text-[var(--color-ink)]/50">Dispatched</div>
-              </div>
-              <div className="rounded bg-white border border-[var(--color-border)] p-3 shadow-sm text-center">
-                <div className="text-2xl font-mono font-bold text-[var(--color-ink)]">{deliveryStats.queued + deliveryStats.sent}</div>
-                <div className="text-xs uppercase font-semibold text-[var(--color-ink)]/50">In Transit</div>
-              </div>
-              <div className="rounded bg-white border border-[var(--color-border)] p-3 shadow-sm text-center">
-                <div className="text-2xl font-mono font-bold text-green-600">{deliveryStats.delivered}</div>
-                <div className="text-xs uppercase font-semibold text-[var(--color-ink)]/50">Delivered</div>
-              </div>
-              <div className="rounded bg-white border border-[var(--color-border)] p-3 shadow-sm text-center">
-                <div className="text-2xl font-mono font-bold text-[var(--color-primary)]">{deliveryStats.acknowledged}</div>
-                <div className="text-xs uppercase font-semibold text-[var(--color-ink)]/50">Acknowledged</div>
-              </div>
-              <div className="rounded bg-white border border-[var(--color-border)] p-3 shadow-sm text-center">
-                <div className="text-2xl font-mono font-bold text-red-600">{deliveryStats.failed}</div>
-                <div className="text-xs uppercase font-semibold text-[var(--color-ink)]/50">Failed</div>
-              </div>
+            <div className="grid grid-cols-2 gap-4 md:grid-cols-5">
+              {[
+                ['Dispatched', deliveryStats.total, 'text-[var(--color-ink)]'],
+                ['In Transit', deliveryStats.queued + deliveryStats.sent, 'text-[var(--color-ink)]'],
+                ['Delivered', deliveryStats.delivered, 'text-green-600'],
+                ['Acknowledged', deliveryStats.acknowledged, 'text-[var(--color-primary)]'],
+                ['Failed', deliveryStats.failed, 'text-red-600'],
+              ].map(([label, val, cls]) => (
+                <div key={label as string} className="rounded border border-[var(--color-border)] bg-white p-3 text-center shadow-sm">
+                  <div className={`text-2xl font-mono font-bold ${cls}`}>{val as number}</div>
+                  <div className="text-xs font-semibold uppercase text-[var(--color-ink)]/50">{label as string}</div>
+                </div>
+              ))}
             </div>
           </div>
         )}
 
         {auditLogs && auditLogs.length > 0 && (
-          <div className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-5">
-            <h2 className="mb-4 text-sm font-semibold uppercase tracking-wide text-[var(--color-ink)]/60">
-              Audit Timeline
-            </h2>
-            <div className="space-y-4">
-              {auditLogs.map((log: any) => (
-                <div key={log.id} className="flex flex-col rounded border border-[var(--color-border)] bg-white p-3 shadow-sm">
-                  <div className="flex items-center justify-between mb-1">
-                    <span className="font-bold text-[var(--color-ink)]">{log.action}</span>
-                    <span className="font-mono text-xs text-[var(--color-ink)]/50">{new Date(log.at).toLocaleString('en-GB')}</span>
-                  </div>
-                  <div className="text-sm text-[var(--color-ink)]/70">
-                    Actor Role: <span className="font-semibold">{log.actor_role?.toUpperCase() || 'SYSTEM'}</span>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
+          <AuditTimeline
+            logs={auditLogs as AuditLogRow[]}
+            actorNames={actorNames}
+            locale={locale}
+            deliveryStats={deliveryStats}
+          />
         )}
       </div>
     </div>

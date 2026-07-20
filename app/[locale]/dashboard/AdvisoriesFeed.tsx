@@ -1,8 +1,10 @@
 import { createClient } from '@/lib/supabase/server'
 import Link from 'next/link'
+import { getLocale } from 'next-intl/server'
 
 export default async function AdvisoriesFeed() {
   const supabase = await createClient()
+  const locale = await getLocale()
   
   // Fetch the latest 10 advisories across all districts, joining the district name
   const { data: advisories, error } = await supabase
@@ -16,14 +18,7 @@ export default async function AdvisoriesFeed() {
   }
 
   return (
-    <div className="flex h-full w-80 flex-col border-l border-[var(--color-border)] bg-[var(--color-surface)]">
-      <div className="border-b border-[var(--color-border)] px-4 py-3">
-        <h2 className="text-sm font-semibold uppercase tracking-wide text-[var(--color-ink)]/70">
-          Latest Advisories
-        </h2>
-      </div>
-      
-      <div className="flex-1 overflow-y-auto p-4">
+    <div className="flex-1 overflow-y-auto p-4">
         {!advisories || advisories.length === 0 ? (
           <p className="text-sm text-[var(--color-ink)]/50">No recent advisories found.</p>
         ) : (
@@ -50,7 +45,7 @@ export default async function AdvisoriesFeed() {
                 )}
                 {a.district && (
                   <Link 
-                    href={`/dashboard/district/${a.district.id}`}
+                    href={`/${locale}/dashboard/district/${a.district.id}`}
                     className="mt-2 inline-block text-[11px] font-medium text-[var(--color-primary)] hover:underline"
                   >
                     {a.district.name_en}, {a.district.province} →
@@ -60,7 +55,6 @@ export default async function AdvisoriesFeed() {
             ))}
           </div>
         )}
-      </div>
     </div>
   )
 }

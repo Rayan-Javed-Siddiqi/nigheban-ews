@@ -6,7 +6,9 @@
     { "path": "/api/ingest/firms",            "schedule": "30 0 * * *" },
     { "path": "/api/ingest/pmd-snapshot",     "schedule": "40 0 * * *" },
     { "path": "/api/ingest/irsa",             "schedule": "50 0 * * *" },
-    { "path": "/api/cron/station-health",     "schedule": "0 1 * * *" },
-    { "path": "/api/simulate/stations",       "schedule": "10 1 * * *" }
+    { "path": "/api/ingest/drought",          "schedule": "0 1 * * *" },
+    { "path": "/api/ingest/advisories",       "schedule": "5 1 * * *" },
+    { "path": "/api/cron/station-health",     "schedule": "*/30 * * * *" },
+    { "path": "/api/simulate/stations",       "schedule": "*/15 * * * *" }
   ]
 }

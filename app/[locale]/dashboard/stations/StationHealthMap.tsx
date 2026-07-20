@@ -62,17 +62,25 @@ export default function StationHealthMap() {
       map.on('click', 'station-points', (e) => {
         const feature = e.features?.[0]
         if (!feature) return
-        const props = feature.properties as any
+        const props = feature.properties as Record<string, string | number | null>
         const lastSeen = props.last_transmission_at
-          ? new Date(props.last_transmission_at).toLocaleString()
+          ? new Date(String(props.last_transmission_at)).toLocaleString('en-GB', {
+              timeZone: 'Asia/Karachi',
+              day: '2-digit',
+              month: 'short',
+              hour: '2-digit',
+              minute: '2-digit',
+            })
           : 'Never'
         new maplibregl.Popup()
           .setLngLat(e.lngLat)
           .setHTML(
             `<strong>${props.name}</strong><br/>
+             ${props.valley ? `Valley: ${props.valley}<br/>` : ''}
+             ${props.district_name ? `District: ${props.district_name}<br/>` : ''}
              Status: ${props.status}<br/>
              Battery: ${props.battery_voltage != null ? props.battery_voltage + 'V' : '—'}<br/>
-             Last transmission: ${lastSeen}`
+             Last transmission: ${lastSeen} PKT`
           )
           .addTo(map)
       })

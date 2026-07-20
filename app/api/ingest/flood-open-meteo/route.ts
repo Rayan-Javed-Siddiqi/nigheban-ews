@@ -1,6 +1,9 @@
 // app/api/ingest/flood-open-meteo/route.ts
 import { createAdminClient } from '@/lib/supabase/admin'
+import { writeIngestStatus } from '@/lib/ingest/status'
 import { NextResponse } from 'next/server'
+
+const SOURCE = 'open-meteo-flood'
 
 export async function GET(request: Request) {
   const authHeader = request.headers.get('authorization')
@@ -29,11 +32,9 @@ export async function GET(request: Request) {
     if (!res.ok) throw new Error(`Open-Meteo Flood API returned ${res.status}`)
     apiData = await res.json()
   } catch (err) {
-    await supabase.from('ingest_status').upsert(
-      { source: 'open-meteo-flood', status: 'degraded', last_success_at: null },
-      { onConflict: 'source' }
-    )
-    return NextResponse.json({ error: (err as Error).message }, { status: 502 })
+    const message = err instanceof Error ? err.message : String(err)
+    await writeIngestStatus(supabase, SOURCE, 'degraded', message)
+    return NextResponse.json({ error: message }, { status: 502 })
   }
 
   // With multiple locations, Open-Meteo returns an array; with one, it returns a single object
@@ -77,10 +78,7 @@ export async function GET(request: Request) {
     }
   }
 
-  await supabase.from('ingest_status').upsert(
-    { source: 'open-meteo-flood', status: 'ok', last_success_at: new Date().toISOString() },
-    { onConflict: 'source' }
-  )
+  await writeIngestStatus(supabase, SOURCE, 'ok')
 
   return NextResponse.json({ ok: true, districts_processed: districts.length, rows_written: rows.length })
 }

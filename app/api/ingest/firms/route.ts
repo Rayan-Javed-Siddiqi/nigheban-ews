@@ -1,5 +1,8 @@
 import { createAdminClient } from '@/lib/supabase/admin'
+import { writeIngestStatus } from '@/lib/ingest/status'
 import { NextResponse } from 'next/server'
+
+const SOURCE = 'nasa_firms'
 
 // Pakistan bounding box (west,south,east,north) per build guide S5
 const BBOX = '69.2,31.5,77.9,37.1'
@@ -56,17 +59,11 @@ export async function GET() {
       else console.error('FIRMS insert failed:', error.message)
     }
 
-    await supabase.from('ingest_status').upsert(
-      { source: 'nasa_firms', last_success_at: new Date().toISOString(), status: 'ok', last_error: null, last_error_at: null },
-      { onConflict: 'source' }
-    )
-
+    await writeIngestStatus(supabase, SOURCE, 'ok')
     return NextResponse.json({ fetched: fires.length, inserted })
   } catch (err) {
-    await supabase.from('ingest_status').upsert(
-      { source: 'nasa_firms', last_error: String(err), last_error_at: new Date().toISOString(), status: 'failed' },
-      { onConflict: 'source' }
-    )
-    return NextResponse.json({ error: String(err) }, { status: 500 })
+    const message = err instanceof Error ? err.message : String(err)
+    await writeIngestStatus(supabase, SOURCE, 'failed', message)
+    return NextResponse.json({ error: message }, { status: 500 })
   }
 }

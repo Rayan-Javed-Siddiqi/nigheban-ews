@@ -1,64 +1,89 @@
 import { createAdminClient } from '@/lib/supabase/admin'
+import { writeIngestStatus } from '@/lib/ingest/status'
 import { NextResponse } from 'next/server'
 
+const SOURCE = 'open-meteo'
+const BATCH_SIZE = 20
 
-const FOCUS_DISTRICTS = ['Chitral Lower', 'Chitral Upper', 'Swat', 'Hunza']
+interface OpenMeteoResult {
+  latitude: number
+  longitude: number
+  hourly?: {
+    precipitation?: (number | null)[]
+    temperature_2m?: (number | null)[]
+    snowfall?: (number | null)[]
+  }
+}
 
 export async function GET() {
   const supabase = createAdminClient()
+
   try {
     const { data: districts, error: districtError } = await supabase
-      .from('district')
-      .select('id, name_en, centroid')
-      .in('name_en', FOCUS_DISTRICTS)
+      .from('district_centroid_latlon')
+      .select('district_id, lat, lon')
+
     if (districtError) throw districtError
+    if (!districts?.length) throw new Error('No districts with centroids found')
 
-    const results = []
-    for (const d of districts ?? []) {
-      const { data: coord } = await supabase.rpc('get_district_lonlat', { district_id: d.id })
-      const lon = coord?.[0]?.lon
-      const lat = coord?.[0]?.lat
-      if (!lon || !lat) continue
+    const results: Record<string, unknown>[] = []
+    let stored = 0
 
-      const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&hourly=precipitation,temperature_2m,snowfall&forecast_days=1`
+    for (let i = 0; i < districts.length; i += BATCH_SIZE) {
+      const batch = districts.slice(i, i + BATCH_SIZE)
+      const lats = batch.map((d) => d.lat).join(',')
+      const lons = batch.map((d) => d.lon).join(',')
+
+      const url =
+        `https://api.open-meteo.com/v1/forecast?latitude=${lats}&longitude=${lons}` +
+        `&hourly=precipitation,temperature_2m,snowfall&forecast_days=1`
+
       const res = await fetch(url, { cache: 'no-store' })
       const data = await res.json()
 
       if (!res.ok) {
-        console.error(`Open-Meteo API error for ${d.name_en} (status ${res.status}):`, JSON.stringify(data))
-        results.push({ district: d.name_en, error: `API returned ${res.status}: ${JSON.stringify(data)}` })
+        console.error(`[ingest:${SOURCE}] API error (batch ${i / BATCH_SIZE + 1}):`, data)
         continue
       }
 
-      const reading = {
-        district_id: d.id,
-        precipitation: data.hourly?.precipitation?.[0] ?? null,
-        temperature: data.hourly?.temperature_2m?.[0] ?? null,
-        snowfall: data.hourly?.snowfall?.[0] ?? null,
-        fetched_at: new Date().toISOString(),
-      }
+      const items: OpenMeteoResult[] = Array.isArray(data) ? data : [data]
 
-      if (reading.precipitation === null && reading.temperature === null && reading.snowfall === null) {
-        console.error(`Open-Meteo returned empty hourly data for ${d.name_en}:`, JSON.stringify(data))
-      }
+      for (let j = 0; j < batch.length; j++) {
+        const district = batch[j]
+        const item = items[j]
+        if (!item?.hourly) continue
 
-      const { error: insertError } = await supabase
-        .from('weather_reading')
-        .upsert(reading, { onConflict: 'district_id' })
-      if (insertError) console.error(`Weather store failed for ${d.name_en}:`, insertError.message)
-      results.push({ district: d.name_en, ...reading })
+        const reading = {
+          district_id: district.district_id,
+          precipitation: item.hourly.precipitation?.[0] ?? null,
+          temperature: item.hourly.temperature_2m?.[0] ?? null,
+          snowfall: item.hourly.snowfall?.[0] ?? null,
+          fetched_at: new Date().toISOString(),
+        }
+
+        const { error: insertError } = await supabase
+          .from('weather_reading')
+          .upsert(reading, { onConflict: 'district_id' })
+
+        if (insertError) {
+          console.error(`[ingest:${SOURCE}] weather upsert failed:`, insertError.message)
+        } else {
+          stored++
+        }
+        results.push(reading)
+      }
     }
 
-    await supabase.from('ingest_status').upsert(
-      { source: 'open-meteo', last_success_at: new Date().toISOString(), status: 'ok', last_error: null, last_error_at: null },
-      { onConflict: 'source' }
-    )
-    return NextResponse.json({ stored: results.length, results })
+    if (stored === 0) {
+      throw new Error('Open-Meteo ingest completed with zero stored readings')
+    }
+
+    await writeIngestStatus(supabase, SOURCE, 'ok')
+    return NextResponse.json({ ok: true, stored, districts: districts.length, results })
   } catch (err) {
-    await supabase.from('ingest_status').upsert(
-      { source: 'open-meteo', last_error: String(err), last_error_at: new Date().toISOString(), status: 'failed' },
-      { onConflict: 'source' }
-    )
-    return NextResponse.json({ error: String(err) }, { status: 500 })
+    const message = err instanceof Error ? err.message : String(err)
+    console.error(`[ingest:${SOURCE}]`, message)
+    await writeIngestStatus(supabase, SOURCE, 'failed', message)
+    return NextResponse.json({ error: message }, { status: 500 })
   }
 }

@@ -78,7 +78,7 @@ export async function GET(request: Request) {
       await page.setCookie(...cookies)
     }
 
-    const targetUrl = `${baseUrl}/${locale}/dashboard/alerts/${alertId}`
+    const targetUrl = `${baseUrl}/${locale}/dashboard/alerts/${alertId}/report`
 
     await page.goto(targetUrl, { waitUntil: 'networkidle0', timeout: 45000 })
 
